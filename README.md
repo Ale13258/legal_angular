@@ -1,73 +1,48 @@
-# Welcome to your Lovable project
+# Gestión Legal y Cartera (Angular)
 
-## Project info
+Aplicación Angular 21 para administrar clientes, propiedades y seguimiento de cobranza.
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+## Stack
 
-## How can I edit this code?
+- **Angular 21** (standalone components, signals)
+- **Tailwind CSS v4**
+- **Spartan/ui** (componentes tipo shadcn)
+- **Chart.js / ng2-charts** (gráficos)
+- **jsPDF + jspdf-autotable + xlsx** (reportes PDF y Excel)
 
-There are several ways of editing your application.
-
-**Use Lovable**
-
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
-
-Changes made via Lovable will be committed automatically to this repo.
-
-**Use your preferred IDE**
-
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
-
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
+## Comandos
 
 ```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
+# Instalar dependencias
+npm install
 
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
+# Servidor de desarrollo
+npm start
+# o: ng serve
 
-# Step 3: Install the necessary dependencies.
-npm i
+# Build de producción
+npm run build
+# o: ng build
 
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
+# Tests unitarios
+npm test
+# o: ng test
 ```
 
-**Edit a file directly in GitHub**
+## Rutas
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+- `/` — Bienvenida
+- `/dashboard` — Cartera (cuentas, filtros)
+- `/clientes/nuevo` — Alta de cliente
+- `/clientes/:id` — Detalle de cliente (informe general PDF/Excel)
+- `/propiedades` — Listado de propiedades
+- `/propiedades/:id` — Detalle de propiedad (historial, informe PDF/Excel)
+- `/graficos` — Gráficos y analítica
 
-**Use GitHub Codespaces**
+## Estructura
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
-
-## What technologies are used for this project?
-
-This project is built with:
-
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
-
-## How can I deploy this project?
-
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
-
-## Can I connect a custom domain to my Lovable project?
-
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+- `src/app/core` — Modelos y DataService (datos en memoria)
+- `src/app/layout` — Layout con navegación
+- `src/app/pages` — Páginas (lazy-loaded)
+- `src/app/shared` — BalanceCard, StatusBadge
+- `src/app/components` — Diálogos de reportes (ClientReportDialog, ReportPreviewDialog)

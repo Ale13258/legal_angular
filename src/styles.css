@@ -1,0 +1,98 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+
+/* Tailwind v4 */
+@import 'tailwindcss';
+
+/* Spartan UI preset (CDK overlay + tw-animate) */
+@import '@spartan-ng/brain/hlm-tailwind-preset.css';
+
+/* Theme: keep legal app look (purple primary, sidebar) */
+:root {
+  color-scheme: light;
+  --font-sans: 'Plus Jakarta Sans', system-ui, sans-serif;
+  --radius: 1rem;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.15 0.02 280);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.15 0.02 280);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.15 0.02 280);
+  --primary: oklch(0.55 0.25 300);
+  --primary-foreground: oklch(1 0 0);
+  --secondary: oklch(0.96 0.04 300);
+  --secondary-foreground: oklch(0.35 0.1 300);
+  --muted: oklch(0.96 0.02 280);
+  --muted-foreground: oklch(0.5 0.02 280);
+  --accent: oklch(0.92 0.06 300);
+  --accent-foreground: oklch(0.35 0.1 300);
+  --destructive: oklch(0.6 0.2 25);
+  --border: oklch(0.9 0.02 280);
+  --input: oklch(0.9 0.02 280);
+  --ring: oklch(0.55 0.25 300);
+  --sidebar: oklch(0.99 0 0);
+  --sidebar-foreground: oklch(0.2 0.02 280);
+  --sidebar-primary: oklch(0.55 0.25 300);
+  --sidebar-primary-foreground: oklch(1 0 0);
+  --sidebar-accent: oklch(0.96 0.04 300);
+  --sidebar-accent-foreground: oklch(0.35 0.1 300);
+  --sidebar-border: oklch(0.9 0.02 280);
+  --sidebar-ring: oklch(0.55 0.25 300);
+  --gradient-hero: linear-gradient(135deg, hsl(275 80% 50%), hsl(300 50% 60%));
+  --gradient-hero-soft: linear-gradient(135deg, hsl(280 50% 96%), hsl(300 40% 96%));
+  --shadow-card: 0 8px 30px rgb(0 0 0 / 0.04);
+  --shadow-card-hover: 0 12px 40px rgb(0 0 0 / 0.08);
+}
+
+.dark {
+  color-scheme: dark;
+  --background: oklch(0.15 0.02 280);
+  --foreground: oklch(0.98 0 0);
+  --card: oklch(0.2 0.02 280);
+  --card-foreground: oklch(0.98 0 0);
+  --popover: oklch(0.2 0.02 280);
+  --popover-foreground: oklch(0.98 0 0);
+  --primary: oklch(0.7 0.2 300);
+  --primary-foreground: oklch(0.15 0 0);
+  --secondary: oklch(0.28 0.02 280);
+  --secondary-foreground: oklch(0.98 0 0);
+  --muted: oklch(0.28 0.02 280);
+  --muted-foreground: oklch(0.65 0 0);
+  --accent: oklch(0.28 0.02 280);
+  --accent-foreground: oklch(0.98 0 0);
+  --destructive: oklch(0.65 0.2 25);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.55 0 0);
+  --sidebar: oklch(0.2 0.02 280);
+  --sidebar-foreground: oklch(0.98 0 0);
+  --sidebar-primary: oklch(0.7 0.2 300);
+  --sidebar-primary-foreground: oklch(0.15 0 0);
+  --sidebar-accent: oklch(0.28 0.02 280);
+  --sidebar-accent-foreground: oklch(0.98 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.55 0 0);
+}
+
+body {
+  font-family: var(--font-sans);
+}
+
+.font-display {
+  font-family: var(--font-sans);
+}
+
+.gradient-hero {
+  background: var(--gradient-hero);
+}
+
+.gradient-hero-soft {
+  background: var(--gradient-hero-soft);
+}
+
+.shadow-card {
+  box-shadow: var(--shadow-card);
+}
+
+.shadow-card-hover {
+  box-shadow: var(--shadow-card-hover);
+}
