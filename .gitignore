@@ -29,8 +29,11 @@ yarn-error.log
 !.vscode/mcp.json
 .history/*
 
-# Markdown (opcional: descomenta si no quieres trackear .md)
-# *.md
+# Cursor IDE
+.cursor/
+
+# Markdown
+*.md
 
 # Miscellaneous
 /.angular/cache

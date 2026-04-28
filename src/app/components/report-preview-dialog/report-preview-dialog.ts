@@ -45,7 +45,7 @@ import * as XLSX from 'xlsx';
             <p><strong class="text-foreground">Propiedad:</strong> {{ propiedad().identificador }} – {{ propiedad().direccion }}</p>
           </div>
 
-          <!-- Resumen financiero -->
+        
           <div class="grid grid-cols-3 gap-3">
             <div class="bg-muted/50 rounded-xl p-4 text-center">
               <p class="text-xs text-muted-foreground mb-1">Cobrado</p>
@@ -56,9 +56,16 @@ import * as XLSX from 'xlsx';
               <p class="font-bold text-foreground">{{ data.formatCurrency(totalPagado()) }}</p>
             </div>
             <div class="rounded-xl p-4 text-center border-2 border-primary/30 bg-primary/5">
-              <p class="text-xs text-muted-foreground mb-1">Monto a la fecha</p>
+              <p class="text-xs text-muted-foreground mb-1">Deuda a la fecha</p>
               <p class="font-bold text-primary">{{ data.formatCurrency(saldo()) }}</p>
             </div>
+          </div>
+
+          <div class="rounded-xl border border-border p-4 text-sm space-y-1">
+            <p class="font-semibold text-foreground mb-2">Cobro de esta unidad</p>
+            <p><strong class="text-muted-foreground">Edad en mora:</strong> {{ data.formatDiasMora(resumenCobroUnidad().edad_mora_dias) }}</p>
+            <p><strong class="text-muted-foreground">Inicio del cobro:</strong> {{ data.formatFechaCorta(resumenCobroUnidad().fecha_inicio_cobro) }}</p>
+            <p><strong class="text-muted-foreground">Fin del cobro:</strong> {{ data.formatFechaCorta(resumenCobroUnidad().fecha_fin_cobro) }}</p>
           </div>
 
           <!-- Detalle de pagos (igual que en el informe) -->
@@ -74,7 +81,7 @@ import * as XLSX from 'xlsx';
                     <th class="text-right px-3 py-2 font-semibold text-muted-foreground">Valor Pagado</th>
                     <th class="text-left px-3 py-2 font-semibold text-muted-foreground">Estado</th>
                     <th class="text-left px-3 py-2 font-semibold text-muted-foreground">Fecha Pago</th>
-                    <th class="text-right px-3 py-2 font-semibold text-muted-foreground">Monto a la fecha</th>
+                    <th class="text-right px-3 py-2 font-semibold text-muted-foreground">Deuda a la fecha</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -151,19 +158,27 @@ export class ReportPreviewDialog {
     const cl = this.data.getClienteById(this.propiedad().cliente_id);
     return cl?.nombre ?? '';
   });
-  totalCobrado = computed(() =>
-    this.historial().reduce((s, h) => s + h.valor_cobrado, 0)
-  );
+  totalCobrado = computed(() => this.saldo());
   totalPagado = computed(() =>
-    this.historial().reduce((s, h) => s + h.valor_pagado, 0)
+    this.historial().reduce((s, h) => s + this.toNumber(h.valor_pagado), 0)
   );
-  saldo = computed(() => this.totalCobrado() - this.totalPagado());
+  saldo = computed(() => {
+    const deuda = this.toNumber(this.propiedad().monto_a_la_fecha);
+    return deuda > 0 ? deuda : 0;
+  });
+
+  resumenCobroUnidad = computed(() => this.data.getResumenMoraCobroParaPropiedad(this.propiedad()));
 
   constructor(protected data: DataService) {
     effect(() => {
       const p = this.propiedad();
       if (p?.identificador) this.titulo.set(`Informe de Cartera - ${p.identificador}`);
     });
+  }
+
+  private toNumber(value: unknown): number {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : 0;
   }
 
   downloadPdf(): void {
@@ -191,13 +206,18 @@ export class ReportPreviewDialog {
     );
     doc.setFont(undefined as unknown as string, 'bold');
     doc.text(
-      `Monto a la fecha: ${this.data.formatCurrency(this.saldo())}`,
+      `Deuda a la fecha: ${this.data.formatCurrency(this.saldo())}`,
       14,
       71
     );
     doc.setFont(undefined as unknown as string, 'normal');
+    const rc = this.resumenCobroUnidad();
+    doc.text('Cobro de esta unidad', 14, 78);
+    doc.text(`Edad en mora: ${this.data.formatDiasMora(rc.edad_mora_dias)}`, 14, 84);
+    doc.text(`Inicio del cobro: ${this.data.formatFechaCorta(rc.fecha_inicio_cobro)}`, 14, 90);
+    doc.text(`Fin del cobro: ${this.data.formatFechaCorta(rc.fecha_fin_cobro)}`, 14, 96);
     const notas = this.notasExtra()?.trim();
-    let startY = 80;
+    let startY = 106;
     if (notas) {
       doc.setFontSize(10);
       doc.text('Notas:', 14, startY);
@@ -217,7 +237,7 @@ export class ReportPreviewDialog {
           'Valor Pagado',
           'Estado',
           'Fecha Pago',
-          'Monto a la fecha',
+          'Deuda a la fecha',
         ],
       ],
       body: historial.map((h) => [
@@ -248,8 +268,20 @@ export class ReportPreviewDialog {
       [],
       ['Total Cobrado', this.data.formatCurrency(this.totalCobrado())],
       ['Total Pagado', this.data.formatCurrency(this.totalPagado())],
-      ['Monto a la fecha', this.data.formatCurrency(this.saldo())],
+      ['Deuda a la fecha', this.data.formatCurrency(this.saldo())],
+      [],
+      ['Cobro de esta unidad'],
+      [
+        'Edad en mora',
+        this.data.formatDiasMora(this.resumenCobroUnidad().edad_mora_dias),
+      ],
+      [
+        'Inicio del cobro',
+        this.data.formatFechaCorta(this.resumenCobroUnidad().fecha_inicio_cobro),
+      ],
+      ['Fin del cobro', this.data.formatFechaCorta(this.resumenCobroUnidad().fecha_fin_cobro)],
       ...(notas ? [[], ['Notas', notas], []] : []),
+      [],
       [
         'Periodo',
         'Concepto',
@@ -257,7 +289,7 @@ export class ReportPreviewDialog {
         'Valor Pagado',
         'Estado',
         'Fecha Pago',
-        'Monto a la fecha',
+        'Deuda a la fecha',
       ],
       ...historial.map((h) => [
         h.periodo,

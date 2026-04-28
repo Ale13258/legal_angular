@@ -12,7 +12,15 @@ export interface Cliente {
   created_at: string;
 }
 
-export type TipoPropiedad = 'apartamento' | 'local' | 'parqueadero' | 'otro';
+export type TipoPropiedad =
+  | 'apartamento'
+  | 'oficina'
+  | 'local'
+  | 'casa'
+  | 'bodega'
+  | 'garaje'
+  | 'parqueadero'
+  | 'otro';
 
 export interface Propiedad {
   id: string;
@@ -23,6 +31,12 @@ export interface Propiedad {
   notas: string;
   monto_a_la_fecha: number;
   created_at: string;
+  /** Por esta unidad (apartamento/local); backend autoritativo. */
+  edad_mora_dias?: number | null;
+  /** Backend: día en que se dio de alta la propiedad en la plataforma (`propiedades.created_at`, parte fecha). */
+  fecha_inicio_cobro?: string | null;
+  /** Backend: fecha en que `monto_a_la_fecha` vuelve a coincidir con el saldo inicial de referencia. */
+  fecha_fin_cobro?: string | null;
 }
 
 export type EstadoPago = 'pendiente' | 'parcial' | 'pagado' | 'vencido';
@@ -40,6 +54,8 @@ export interface HistorialPago {
   monto_a_la_fecha: number;
   observaciones: string;
   created_at: string;
+  /** Opcional por movimiento (backend). La UI de cobro/mora por unidad usa solo `Propiedad`. */
+  dias_en_mora?: number | null;
 }
 
 export type TipoCuenta = 'juridica' | 'extrajudicial' | 'acuerdo_de_pago';
@@ -69,8 +85,14 @@ export interface Gestion {
 export interface EstadoCuentaFile {
   id: string;
   nombre: string;
-  archivo: File;
+  tamano_bytes: number;
+  mime_type: string;
   fecha_subida: string;
-  propiedad_id?: string;
+  propiedad_id: string;
   notas?: string;
+}
+
+/** Metadata persistible del archivo en almacenamiento local/API. */
+export interface EstadoCuentaFileMeta extends Omit<EstadoCuentaFile, 'propiedad_id'> {
+  propiedad_id: string;
 }

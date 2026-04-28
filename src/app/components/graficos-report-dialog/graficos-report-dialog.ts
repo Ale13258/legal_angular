@@ -12,7 +12,7 @@ import * as XLSX from 'xlsx';
       <div class="fixed inset-0 bg-black/50" (click)="openChange.emit(false)"></div>
       <div class="relative z-50 bg-card rounded-2xl shadow-lg border border-border max-w-2xl w-full max-h-[90vh] overflow-auto">
         <div class="sticky top-0 bg-card border-b border-border px-6 py-4 flex items-center justify-between shrink-0">
-          <h2 class="font-display text-xl font-bold">Informe de Gráficos y Analítica</h2>
+          <h2 class="font-display text-xl font-bold">Informe de analítica de cartera</h2>
           <button
             type="button"
             (click)="openChange.emit(false)"
@@ -174,20 +174,18 @@ export class GraficosReportDialog {
   }
 
   periodoTable(): { periodo: string; cobrado: number; pagado: number }[] {
-    const periodos = [...new Set(this.data.mockHistorial.map((h) => h.periodo))].sort();
-    return periodos.map((periodo) => {
-      const items = this.data.mockHistorial.filter((h) => h.periodo === periodo);
-      const cobrado = items.reduce((s, h) => s + h.valor_cobrado, 0);
-      const pagado = items.reduce((s, h) => s + h.valor_pagado, 0);
-      return { periodo, cobrado, pagado };
-    });
+    return this.data.getEvolucionCartera().map((s) => ({
+      periodo: s.periodo,
+      cobrado: s.total,
+      pagado: 0,
+    }));
   }
 
   constructor(protected data: DataService) {}
 
   downloadPdf(): void {
     const doc = new jsPDF();
-    const titulo = 'Informe de Gráficos y Analítica';
+    const titulo = 'Informe de analítica de cartera';
     doc.setFontSize(16);
     doc.text(titulo, 14, 20);
     doc.setFontSize(10);
@@ -251,7 +249,7 @@ export class GraficosReportDialog {
     const tipoRows = this.tipoTable();
     const periodoRows = this.periodoTable();
     const wsData: (string | number)[][] = [
-      ['Informe de Gráficos y Analítica'],
+      ['Informe de analítica de cartera'],
       [`Fecha: ${this.fecha}`],
       ['Visión general de toda la cartera'],
       [],
@@ -278,7 +276,7 @@ export class GraficosReportDialog {
       { wch: 16 },
     ];
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Gráficos');
+    XLSX.utils.book_append_sheet(wb, ws, 'Informes');
     XLSX.writeFile(wb, `informe_graficos_${new Date().toISOString().slice(0, 10)}.xlsx`);
   }
 }

@@ -105,6 +105,7 @@ import type { Propiedad } from '../../core/models';
           <div class="rounded-xl bg-muted/50 p-4">
             <h3 class="text-sm font-semibold text-foreground mb-3">Resumen</h3>
             <p class="text-sm text-foreground">Cliente: {{ clienteNombre() }} - {{ destinatario() }}</p>
+            <p class="text-sm text-foreground">Telefono: {{ telefonoCliente() }}</p>
             <p class="text-sm text-foreground">Propiedad: {{ propiedad().identificador }}</p>
             <p class="text-sm font-bold text-destructive mt-2">Monto pendiente: {{ data.formatCurrency(montoPendiente()) }}</p>
           </div>
@@ -149,6 +150,7 @@ export class PaymentReminderDialog {
 
   destinatario = signal('');
   asunto = signal('');
+  telefonoCliente = signal('No registrado');
 
   fecha = new Date().toLocaleDateString('es-CO', {
     day: 'numeric',
@@ -161,10 +163,8 @@ export class PaymentReminderDialog {
     return cl?.nombre ?? '';
   });
   montoPendiente = computed(() => {
-    const hist = this.data.getHistorialByPropiedad(this.propiedad().id);
-    const cobrado = hist.reduce((s, h) => s + h.valor_cobrado, 0);
-    const pagado = hist.reduce((s, h) => s + h.valor_pagado, 0);
-    return cobrado - pagado;
+    const deuda = this.toNumber(this.propiedad().monto_a_la_fecha);
+    return deuda > 0 ? deuda : 0;
   });
 
   constructor(protected data: DataService) {
@@ -172,13 +172,16 @@ export class PaymentReminderDialog {
       const p = this.propiedad();
       const cl = this.data.getClienteById(p.cliente_id);
       this.destinatario.set(cl?.email ?? '');
+      this.telefonoCliente.set(cl?.telefono?.trim() || 'No registrado');
       this.asunto.set(`Recordatorio de pago - ${p.identificador}`);
     });
   }
 
   mailtoLink(): string {
     const body = this.cuerpoTexto();
-    return `mailto:${encodeURIComponent(this.destinatario())}?subject=${encodeURIComponent(this.asunto())}&body=${encodeURIComponent(body)}`;
+    const to = this.destinatario().trim();
+    const base = to ? `mailto:${to}` : 'mailto:';
+    return `${base}?subject=${encodeURIComponent(this.asunto())}&body=${encodeURIComponent(body)}`;
   }
 
   private cuerpoTexto(): string {
@@ -253,4 +256,10 @@ export class PaymentReminderDialog {
 </body>
 </html>`;
   }
+
+  private toNumber(value: unknown): number {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : 0;
+  }
+
 }

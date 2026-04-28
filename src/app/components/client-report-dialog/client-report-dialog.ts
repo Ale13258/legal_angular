@@ -50,8 +50,37 @@ import * as XLSX from 'xlsx';
               <p class="font-bold text-foreground">{{ data.formatCurrency(totalPagado()) }}</p>
             </div>
             <div class="rounded-xl p-4 text-center border-2 border-primary/30 bg-primary/5">
-              <p class="text-xs text-muted-foreground mb-1">Monto a la fecha</p>
+              <p class="text-xs text-muted-foreground mb-1">Deuda a la fecha</p>
               <p class="font-bold text-primary">{{ data.formatCurrency(saldo()) }}</p>
+            </div>
+          </div>
+
+          <div>
+            <h3 class="text-sm font-semibold text-foreground mb-2">Por propiedad (unidad)</h3>
+            <p class="text-xs text-muted-foreground mb-2">
+              Mora e inicio/fin de cobro por apartamento, local u otra unidad — no por cada movimiento.
+            </p>
+            <div class="overflow-x-auto rounded-xl border border-border">
+              <table class="w-full text-sm">
+                <thead>
+                  <tr class="border-b border-border bg-muted/30">
+                    <th class="text-left px-3 py-2 font-semibold text-muted-foreground">Unidad</th>
+                    <th class="text-right px-3 py-2 font-semibold text-muted-foreground">Edad en mora</th>
+                    <th class="text-left px-3 py-2 font-semibold text-muted-foreground">Inicio cobro</th>
+                    <th class="text-left px-3 py-2 font-semibold text-muted-foreground">Fin cobro</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (row of resumenPorPropiedad(); track row.identificador) {
+                    <tr class="border-b border-border/50">
+                      <td class="px-3 py-2 font-medium">{{ row.identificador }}</td>
+                      <td class="px-3 py-2 text-right tabular-nums">{{ data.formatDiasMora(row.edad_mora_dias) }}</td>
+                      <td class="px-3 py-2 text-muted-foreground">{{ data.formatFechaCorta(row.fecha_inicio_cobro) }}</td>
+                      <td class="px-3 py-2 text-muted-foreground">{{ data.formatFechaCorta(row.fecha_fin_cobro) }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
             </div>
           </div>
 
@@ -142,13 +171,26 @@ export class ClientReportDialog {
     });
   });
 
-  totalCobrado = computed(() =>
-    this.allData().reduce((s, h) => s + h.valor_cobrado, 0)
-  );
+  totalCobrado = computed(() => this.saldo());
   totalPagado = computed(() =>
     this.allData().reduce((s, h) => s + h.valor_pagado, 0)
   );
-  saldo = computed(() => this.totalCobrado() - this.totalPagado());
+  saldo = computed(() => {
+    const deuda = this.propiedades().reduce((sum, p) => sum + this.toNumber(p.monto_a_la_fecha), 0);
+    return deuda > 0 ? deuda : 0;
+  });
+
+  resumenPorPropiedad = computed(() =>
+    this.propiedades().map((p) => {
+      const r = this.data.getResumenMoraCobroParaPropiedad(p);
+      return {
+        identificador: p.identificador,
+        edad_mora_dias: r.edad_mora_dias,
+        fecha_inicio_cobro: r.fecha_inicio_cobro,
+        fecha_fin_cobro: r.fecha_fin_cobro,
+      };
+    })
+  );
 
   constructor(protected data: DataService) {
     effect(() => {
@@ -181,7 +223,7 @@ export class ClientReportDialog {
     );
     doc.setFont(undefined as unknown as string, 'bold');
     doc.text(
-      `Monto a la fecha: ${this.data.formatCurrency(this.saldo())}`,
+      `Deuda a la fecha: ${this.data.formatCurrency(this.saldo())}`,
       14,
       65
     );
@@ -196,19 +238,32 @@ export class ClientReportDialog {
       doc.text(lines, 14, startY);
       startY += lines.length * 5 + 8;
     }
-    const allData = this.allData();
+    doc.setFontSize(11);
+    doc.text('Por propiedad (unidad)', 14, startY);
+    doc.setFontSize(10);
+    startY += 6;
+    const resumen = this.resumenPorPropiedad();
     autoTable(doc, {
       startY,
-      head: [
-        [
-          'Propiedad',
-          'Periodo',
-          'Concepto',
-          'Cobrado',
-          'Pagado',
-          'Estado',
-        ],
-      ],
+      head: [['Unidad', 'Edad en mora', 'Inicio cobro', 'Fin cobro']],
+      body: resumen.map((row) => [
+        row.identificador,
+        this.data.formatDiasMora(row.edad_mora_dias),
+        this.data.formatFechaCorta(row.fecha_inicio_cobro),
+        this.data.formatFechaCorta(row.fecha_fin_cobro),
+      ]),
+      styles: { fontSize: 8 },
+      headStyles: { fillColor: [107, 60, 200] },
+    });
+    const docLt = doc as unknown as { lastAutoTable?: { finalY: number } };
+    const yAfterResumen = docLt.lastAutoTable?.finalY ?? startY + 24;
+    const allData = this.allData();
+    doc.setFontSize(11);
+    doc.text('Detalle de transacciones', 14, yAfterResumen + 8);
+    doc.setFontSize(10);
+    autoTable(doc, {
+      startY: yAfterResumen + 14,
+      head: [['Propiedad', 'Periodo', 'Concepto', 'Cobrado', 'Pagado', 'Estado']],
       body: allData.map((h) => [
         h.propiedad,
         h.periodo,
@@ -228,6 +283,12 @@ export class ClientReportDialog {
     const tituloDoc = this.titulo() || `Informe General – ${c.nombre}`;
     const allData = this.allData();
     const notas = this.notasExtra()?.trim();
+    const resumenRows = this.resumenPorPropiedad().map((row) => [
+      row.identificador,
+      this.data.formatDiasMora(row.edad_mora_dias),
+      this.data.formatFechaCorta(row.fecha_inicio_cobro),
+      this.data.formatFechaCorta(row.fecha_fin_cobro),
+    ]);
     const wsData: (string | number)[][] = [
       [tituloDoc],
       [`Fecha: ${this.fecha}`],
@@ -235,8 +296,14 @@ export class ClientReportDialog {
       [],
       ['Total Cobrado', this.data.formatCurrency(this.totalCobrado())],
       ['Total Pagado', this.data.formatCurrency(this.totalPagado())],
-      ['Monto a la fecha', this.data.formatCurrency(this.saldo())],
+      ['Deuda a la fecha', this.data.formatCurrency(this.saldo())],
       ...(notas ? [[], ['Notas', notas], []] : []),
+      [],
+      ['Por propiedad (unidad)'],
+      ['Unidad', 'Edad en mora', 'Inicio cobro', 'Fin cobro'],
+      ...resumenRows,
+      [],
+      ['Detalle de transacciones'],
       [],
       ['Propiedad', 'Periodo', 'Concepto', 'Cobrado', 'Pagado', 'Estado'],
       ...allData.map((h) => [
@@ -264,4 +331,10 @@ export class ClientReportDialog {
       `informe_general_${c.nombre.replace(/\s/g, '_')}.xlsx`
     );
   }
+
+  private toNumber(value: unknown): number {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : 0;
+  }
+
 }

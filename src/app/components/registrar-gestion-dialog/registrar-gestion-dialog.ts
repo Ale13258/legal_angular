@@ -21,7 +21,8 @@ import type { Propiedad } from '../../core/models';
           </button>
         </div>
 
-        <form (ngSubmit)="guardar()" class="p-6 space-y-5">
+        <!-- (submit) + preventDefault: sin FormsModule, (ngSubmit) no aplica y el submit nativo recarga la SPA -->
+        <form (submit)="onFormSubmit($event)" class="p-6 space-y-5">
           <!-- Fecha -->
           <div>
             <label class="block text-sm font-medium text-foreground mb-1.5">Fecha</label>
@@ -97,12 +98,9 @@ export class RegistrarGestionDialog {
   descripcion = signal('');
 
   estadoOpciones = [
-    { value: 'recibido', label: 'Recibido' },
-    { value: 'enviado', label: 'Enviado' },
-    { value: 'contactado', label: 'Contactado' },
-    { value: 'acordado', label: 'Acordado' },
-    { value: 'programado', label: 'Programado' },
-    { value: 'pendiente', label: 'Pendiente' },
+    { value: 'recibido', label: 'RECIBIDO' },
+    { value: 'enviado', label: 'ENVIADO' },
+    { value: 'pendiente', label: 'PENDIENTE' },
   ];
 
   private fechaHoy(): string {
@@ -110,10 +108,21 @@ export class RegistrarGestionDialog {
     return d.toISOString().slice(0, 10);
   }
 
+  onFormSubmit(event: Event): void {
+    event.preventDefault();
+    this.guardar();
+  }
+
   guardar(): void {
     const f = this.fecha();
     const e = this.estado();
     const d = this.descripcion().trim();
+    console.log('[LegalDebug][RegistrarGestionDialog] guardar() emit saved', {
+      propiedadId: this.propiedad().id,
+      fecha: f,
+      estado: e,
+      descripcion: d,
+    });
     this.saved.emit({ fecha: f, estado: e, descripcion: d });
     this.descripcion.set('');
     this.estado.set('pendiente');
