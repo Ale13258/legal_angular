@@ -64,7 +64,11 @@ import * as XLSX from 'xlsx';
           <div class="rounded-xl border border-border p-4 text-sm space-y-1">
             <p class="font-semibold text-foreground mb-2">Cobro de esta unidad</p>
             <p><strong class="text-muted-foreground">Edad en mora:</strong> {{ data.formatDiasMora(resumenCobroUnidad().edad_mora_dias) }}</p>
-            <p><strong class="text-muted-foreground">Inicio del cobro:</strong> {{ data.formatFechaCorta(resumenCobroUnidad().fecha_inicio_cobro) }}</p>
+            <p class="text-foreground">
+              <strong class="text-muted-foreground">Etapa de cobranza:</strong>
+              {{ data.formatEtapaCobranza(resumenCobroUnidad().edad_mora_dias) }}
+            </p>
+            <p><strong class="text-muted-foreground">Inicio del cobro (sistema):</strong> {{ data.formatFechaCorta(resumenCobroUnidad().fecha_inicio_cobro) }}</p>
             <p><strong class="text-muted-foreground">Fin del cobro:</strong> {{ data.formatFechaCorta(resumenCobroUnidad().fecha_fin_cobro) }}</p>
           </div>
 
@@ -93,7 +97,7 @@ import * as XLSX from 'xlsx';
                       <td class="px-3 py-2 text-right tabular-nums">{{ data.formatCurrency(h.valor_pagado) }}</td>
                       <td class="px-3 py-2">{{ data.estadoPagoLabels[h.estado_pago] }}</td>
                       <td class="px-3 py-2 text-muted-foreground">{{ h.fecha_pago || '—' }}</td>
-                      <td class="px-3 py-2 text-right tabular-nums">{{ data.formatCurrency(h.monto_a_la_fecha) }}</td>
+                      <td class="px-3 py-2 text-right tabular-nums">{{ data.formatDeuda(h.monto_a_la_fecha) }}</td>
                     </tr>
                   }
                 </tbody>
@@ -158,14 +162,11 @@ export class ReportPreviewDialog {
     const cl = this.data.getClienteById(this.propiedad().cliente_id);
     return cl?.nombre ?? '';
   });
-  totalCobrado = computed(() => this.saldo());
+  totalCobrado = computed(() => this.data.getTotalCobradoParaPropiedad(this.propiedad()));
   totalPagado = computed(() =>
     this.historial().reduce((s, h) => s + this.toNumber(h.valor_pagado), 0)
   );
-  saldo = computed(() => {
-    const deuda = this.toNumber(this.propiedad().monto_a_la_fecha);
-    return deuda > 0 ? deuda : 0;
-  });
+  saldo = computed(() => this.data.getDeudaActualParaPropiedad(this.propiedad()));
 
   resumenCobroUnidad = computed(() => this.data.getResumenMoraCobroParaPropiedad(this.propiedad()));
 
@@ -173,6 +174,8 @@ export class ReportPreviewDialog {
     effect(() => {
       const p = this.propiedad();
       if (p?.identificador) this.titulo.set(`Informe de Cartera - ${p.identificador}`);
+      // Desde la ficha del cliente no se precarga el historial; sin esto el informe solo refleja deuda y la tabla queda vacía.
+      void this.data.loadHistorialByPropiedad(p.id);
     });
   }
 
@@ -214,10 +217,17 @@ export class ReportPreviewDialog {
     const rc = this.resumenCobroUnidad();
     doc.text('Cobro de esta unidad', 14, 78);
     doc.text(`Edad en mora: ${this.data.formatDiasMora(rc.edad_mora_dias)}`, 14, 84);
-    doc.text(`Inicio del cobro: ${this.data.formatFechaCorta(rc.fecha_inicio_cobro)}`, 14, 90);
-    doc.text(`Fin del cobro: ${this.data.formatFechaCorta(rc.fecha_fin_cobro)}`, 14, 96);
+    const etapaLines = doc.splitTextToSize(
+      `Etapa de cobranza: ${this.data.formatEtapaCobranza(rc.edad_mora_dias)}`,
+      180
+    );
+    doc.text(etapaLines, 14, 90);
+    let yAfterEtapa = 90 + etapaLines.length * 5;
+    doc.text(`Inicio del cobro (sistema): ${this.data.formatFechaCorta(rc.fecha_inicio_cobro)}`, 14, yAfterEtapa);
+    yAfterEtapa += 6;
+    doc.text(`Fin del cobro: ${this.data.formatFechaCorta(rc.fecha_fin_cobro)}`, 14, yAfterEtapa);
     const notas = this.notasExtra()?.trim();
-    let startY = 106;
+    let startY = yAfterEtapa + 10;
     if (notas) {
       doc.setFontSize(10);
       doc.text('Notas:', 14, startY);
@@ -247,7 +257,7 @@ export class ReportPreviewDialog {
         this.data.formatCurrency(h.valor_pagado),
         this.data.estadoPagoLabels[h.estado_pago],
         h.fecha_pago || '—',
-        this.data.formatCurrency(h.monto_a_la_fecha),
+        this.data.formatDeuda(h.monto_a_la_fecha),
       ]),
       styles: { fontSize: 8 },
       headStyles: { fillColor: [107, 60, 200] },
@@ -275,8 +285,9 @@ export class ReportPreviewDialog {
         'Edad en mora',
         this.data.formatDiasMora(this.resumenCobroUnidad().edad_mora_dias),
       ],
+      ['Etapa de cobranza', this.data.formatEtapaCobranza(this.resumenCobroUnidad().edad_mora_dias)],
       [
-        'Inicio del cobro',
+        'Inicio del cobro (sistema)',
         this.data.formatFechaCorta(this.resumenCobroUnidad().fecha_inicio_cobro),
       ],
       ['Fin del cobro', this.data.formatFechaCorta(this.resumenCobroUnidad().fecha_fin_cobro)],

@@ -58,7 +58,7 @@ import * as XLSX from 'xlsx';
           <div>
             <h3 class="text-sm font-semibold text-foreground mb-2">Por propiedad (unidad)</h3>
             <p class="text-xs text-muted-foreground mb-2">
-              Mora e inicio/fin de cobro por apartamento, local u otra unidad — no por cada movimiento.
+              Edad en mora agregada por unidad (días y etapa; fechas en tooltip al pasar el cursor).
             </p>
             <div class="overflow-x-auto rounded-xl border border-border">
               <table class="w-full text-sm">
@@ -66,17 +66,23 @@ import * as XLSX from 'xlsx';
                   <tr class="border-b border-border bg-muted/30">
                     <th class="text-left px-3 py-2 font-semibold text-muted-foreground">Unidad</th>
                     <th class="text-right px-3 py-2 font-semibold text-muted-foreground">Edad en mora</th>
-                    <th class="text-left px-3 py-2 font-semibold text-muted-foreground">Inicio cobro</th>
-                    <th class="text-left px-3 py-2 font-semibold text-muted-foreground">Fin cobro</th>
                   </tr>
                 </thead>
                 <tbody>
                   @for (row of resumenPorPropiedad(); track row.identificador) {
                     <tr class="border-b border-border/50">
                       <td class="px-3 py-2 font-medium">{{ row.identificador }}</td>
-                      <td class="px-3 py-2 text-right tabular-nums">{{ data.formatDiasMora(row.edad_mora_dias) }}</td>
-                      <td class="px-3 py-2 text-muted-foreground">{{ data.formatFechaCorta(row.fecha_inicio_cobro) }}</td>
-                      <td class="px-3 py-2 text-muted-foreground">{{ data.formatFechaCorta(row.fecha_fin_cobro) }}</td>
+                      <td
+                        class="px-3 py-2 text-right align-top max-w-[18rem]"
+                        [title]="data.formatResumenMoraTooltip(row)"
+                      >
+                        <div class="font-medium tabular-nums text-foreground">
+                          {{ data.formatDiasMora(row.edad_mora_dias) }}
+                        </div>
+                        <div class="text-xs text-muted-foreground mt-1 leading-snug">
+                          {{ data.formatEtapaCobranzaCorta(row.edad_mora_dias) }}
+                        </div>
+                      </td>
                     </tr>
                   }
                 </tbody>
@@ -171,14 +177,15 @@ export class ClientReportDialog {
     });
   });
 
-  totalCobrado = computed(() => this.saldo());
+  totalCobrado = computed(() =>
+    this.propiedades().reduce((sum, p) => sum + this.data.getTotalCobradoParaPropiedad(p), 0)
+  );
   totalPagado = computed(() =>
     this.allData().reduce((s, h) => s + h.valor_pagado, 0)
   );
-  saldo = computed(() => {
-    const deuda = this.propiedades().reduce((sum, p) => sum + this.toNumber(p.monto_a_la_fecha), 0);
-    return deuda > 0 ? deuda : 0;
-  });
+  saldo = computed(() =>
+    this.propiedades().reduce((sum, p) => sum + this.data.getDeudaActualParaPropiedad(p), 0)
+  );
 
   resumenPorPropiedad = computed(() =>
     this.propiedades().map((p) => {
@@ -245,12 +252,14 @@ export class ClientReportDialog {
     const resumen = this.resumenPorPropiedad();
     autoTable(doc, {
       startY,
-      head: [['Unidad', 'Edad en mora', 'Inicio cobro', 'Fin cobro']],
+      head: [['Unidad', 'Edad en mora']],
       body: resumen.map((row) => [
         row.identificador,
-        this.data.formatDiasMora(row.edad_mora_dias),
-        this.data.formatFechaCorta(row.fecha_inicio_cobro),
-        this.data.formatFechaCorta(row.fecha_fin_cobro),
+        this.data.formatResumenMoraTooltip({
+          edad_mora_dias: row.edad_mora_dias,
+          fecha_inicio_cobro: row.fecha_inicio_cobro,
+          fecha_fin_cobro: row.fecha_fin_cobro,
+        }),
       ]),
       styles: { fontSize: 8 },
       headStyles: { fillColor: [107, 60, 200] },
@@ -285,9 +294,11 @@ export class ClientReportDialog {
     const notas = this.notasExtra()?.trim();
     const resumenRows = this.resumenPorPropiedad().map((row) => [
       row.identificador,
-      this.data.formatDiasMora(row.edad_mora_dias),
-      this.data.formatFechaCorta(row.fecha_inicio_cobro),
-      this.data.formatFechaCorta(row.fecha_fin_cobro),
+      this.data.formatResumenMoraTooltip({
+        edad_mora_dias: row.edad_mora_dias,
+        fecha_inicio_cobro: row.fecha_inicio_cobro,
+        fecha_fin_cobro: row.fecha_fin_cobro,
+      }).replace(/\n/g, ' | '),
     ]);
     const wsData: (string | number)[][] = [
       [tituloDoc],
@@ -300,7 +311,7 @@ export class ClientReportDialog {
       ...(notas ? [[], ['Notas', notas], []] : []),
       [],
       ['Por propiedad (unidad)'],
-      ['Unidad', 'Edad en mora', 'Inicio cobro', 'Fin cobro'],
+      ['Unidad', 'Edad en mora (días, etapa, fechas)'],
       ...resumenRows,
       [],
       ['Detalle de transacciones'],

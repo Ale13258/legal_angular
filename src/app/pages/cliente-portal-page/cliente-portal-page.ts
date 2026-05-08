@@ -37,7 +37,7 @@ import { fadeInUp, fadeInUpStagger } from '../../core/animations/animations';
           <h2 class="font-display font-semibold text-lg text-foreground mb-4">Propiedades</h2>
           <div class="bg-card rounded-2xl shadow-card border border-border/50 overflow-hidden">
             <div class="table-wrap overflow-x-auto">
-              <table class="w-full min-w-[880px]">
+              <table class="w-full min-w-[720px]">
                 <thead>
                   <tr class="border-b border-border">
                     <th class="text-left px-4 sm:px-6 py-3 text-xs font-semibold text-muted-foreground uppercase">
@@ -49,14 +49,11 @@ import { fadeInUp, fadeInUpStagger } from '../../core/animations/animations';
                     <th class="text-left px-4 sm:px-6 py-3 text-xs font-semibold text-muted-foreground uppercase">
                       Dirección
                     </th>
-                    <th class="text-right px-4 sm:px-6 py-3 text-xs font-semibold text-muted-foreground uppercase">
+                    <th
+                      class="text-right px-4 sm:px-6 py-3 text-xs font-semibold text-muted-foreground uppercase max-w-[13rem]"
+                      title="Días, etapa y fechas (alta, inicio, fin) al pasar el cursor"
+                    >
                       Edad en mora
-                    </th>
-                    <th class="text-left px-4 sm:px-6 py-3 text-xs font-semibold text-muted-foreground uppercase">
-                      Inicio cobro
-                    </th>
-                    <th class="text-left px-4 sm:px-6 py-3 text-xs font-semibold text-muted-foreground uppercase">
-                      Fin cobro
                     </th>
                     <th class="text-right px-4 sm:px-6 py-3 text-xs font-semibold text-muted-foreground uppercase">
                       Saldo a la fecha
@@ -77,17 +74,19 @@ import { fadeInUp, fadeInUpStagger } from '../../core/animations/animations';
                       </td>
                       <td class="px-4 sm:px-6 py-3 font-medium">{{ p.identificador }}</td>
                       <td class="px-4 sm:px-6 py-3 text-muted-foreground text-sm">{{ p.direccion }}</td>
-                      <td class="px-4 sm:px-6 py-3 text-right text-sm tabular-nums">
-                        {{ data.formatDiasMora(resumenCobro(p).edad_mora_dias) }}
-                      </td>
-                      <td class="px-4 sm:px-6 py-3 text-sm text-muted-foreground">
-                        {{ data.formatFechaCorta(resumenCobro(p).fecha_inicio_cobro) }}
-                      </td>
-                      <td class="px-4 sm:px-6 py-3 text-sm text-muted-foreground">
-                        {{ data.formatFechaCorta(resumenCobro(p).fecha_fin_cobro) }}
+                      <td
+                        class="px-4 sm:px-6 py-3 text-right text-sm align-top max-w-[13rem]"
+                        [title]="data.formatResumenMoraTooltip(resumenCobro(p))"
+                      >
+                        <div class="font-medium tabular-nums">
+                          {{ data.formatDiasMora(resumenCobro(p).edad_mora_dias) }}
+                        </div>
+                        <div class="text-xs text-muted-foreground mt-1 leading-snug line-clamp-2">
+                          {{ data.formatEtapaCobranzaCorta(resumenCobro(p).edad_mora_dias) }}
+                        </div>
                       </td>
                       <td class="px-4 sm:px-6 py-3 text-right font-mono text-sm">
-                        {{ data.formatCurrency(p.monto_a_la_fecha) }}
+                        {{ data.formatDeuda(data.getDeudaActualParaPropiedad(p)) }}
                       </td>
                     </tr>
                   }

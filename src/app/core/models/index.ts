@@ -29,13 +29,21 @@ export interface Propiedad {
   identificador: string;
   direccion: string;
   notas: string;
+  /** Valor original registrado al crear la propiedad. */
+  saldo_inicial?: number | null;
   monto_a_la_fecha: number;
   created_at: string;
-  /** Por esta unidad (apartamento/local); backend autoritativo. */
+  /**
+   * Días de mora agregados por unidad. El backend la calcula al persistir historial:
+   * máximo de `dias_en_mora` por movimiento (misma idea que el fallback en el cliente Angular).
+   * La regla fina (vencimiento, FIFO) vive en el servidor (`computeDiasEnMora`).
+   */
   edad_mora_dias?: number | null;
-  /** Backend: día en que se dio de alta la propiedad en la plataforma (`propiedades.created_at`, parte fecha). */
+  /**
+   * Opcional: fecha que el backend asocia al inicio de cobro en sistema (no confundir con alta en app).
+   */
   fecha_inicio_cobro?: string | null;
-  /** Backend: fecha en que `monto_a_la_fecha` vuelve a coincidir con el saldo inicial de referencia. */
+  /** Fecha en que la deuda llega a cero según backend o heurística de historial en cliente. */
   fecha_fin_cobro?: string | null;
 }
 
@@ -54,7 +62,10 @@ export interface HistorialPago {
   monto_a_la_fecha: number;
   observaciones: string;
   created_at: string;
-  /** Opcional por movimiento (backend). La UI de cobro/mora por unidad usa solo `Propiedad`. */
+  /**
+   * Días en mora del movimiento/periodo, calculados en servidor al crear el historial.
+   * El agregado por propiedad (`edad_mora_dias`) es el máximo entre filas del historial.
+   */
   dias_en_mora?: number | null;
 }
 

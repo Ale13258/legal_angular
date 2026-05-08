@@ -36,9 +36,28 @@ describe('DataService', () => {
     expect(service.formatCurrency(1000000)).toMatch(/[\d.,]+/);
   });
 
+  it('should format invalid currency values as 0 COP', () => {
+    const text = service.formatCurrency(Number.NaN as unknown as number);
+    expect(text).not.toContain('NaN');
+    expect(text).toContain('0');
+  });
+
+  it('should clamp debt format to zero when negative', () => {
+    const text = service.formatDeuda(-1000);
+    expect(text).toContain('0');
+    expect(text).not.toContain('-');
+  });
+
   it('should format dias mora and empty as em dash', () => {
     expect(service.formatDiasMora(30)).toContain('30');
     expect(service.formatDiasMora(null)).toBe('—');
+  });
+
+  it('formatEtapaCobranza uses mora-etapas labels', () => {
+    expect(service.formatEtapaCobranza(15)).toContain('pre-jurídica');
+    expect(service.formatEtapaCobranzaCorta(45)).toContain('31');
+    expect(service.formatEtapaCobranzaCorta(45)).toContain('60');
+    expect(service.formatEtapaCobranzaCorta(null)).toBe('—');
   });
 
   it('should format fecha corta or em dash for invalid', () => {
@@ -102,4 +121,5 @@ describe('DataService', () => {
     const listed = service.getCuentasByCliente(clienteId);
     expect(listed).toEqual([afterReload]);
   });
+
 });

@@ -124,25 +124,26 @@ import type { Cuenta, Propiedad, TipoPropiedad } from '../../core/models';
               </button>
             </div>
             <div class="table-wrap">
-              <table class="w-full min-w-[64rem] table-fixed">
+              <table class="w-full min-w-[56rem] table-fixed">
                 <colgroup>
-                  <col class="w-[21%]" />
-                  <col class="w-[9%]" />
-                  <col class="w-[13%]" />
-                  <col class="w-[9%]" />
-                  <col class="w-[10%]" />
+                  <col class="w-[26%]" />
                   <col class="w-[10%]" />
                   <col class="w-[14%]" />
+                  <col class="w-[18%]" />
                   <col class="w-[14%]" />
+                  <col class="w-[18%]" />
                 </colgroup>
                 <thead>
                   <tr class="border-b border-border">
                     <th class="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Propiedad</th>
                     <th class="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Tipo</th>
                     <th class="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Identificador</th>
-                    <th class="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase whitespace-nowrap">Edad en mora</th>
-                    <th class="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase whitespace-nowrap">Inicio cobro</th>
-                    <th class="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase whitespace-nowrap">Fin cobro</th>
+                    <th
+                      class="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase whitespace-nowrap"
+                      title="Días en mora y etapa. Pasa el cursor para ver alta en app, inicio y fin de cobro."
+                    >
+                      Edad en mora
+                    </th>
                     <th class="text-right px-3 py-3 text-xs font-semibold text-muted-foreground uppercase whitespace-nowrap">Deuda a la fecha</th>
                     <th class="text-right px-3 py-3 text-xs font-semibold text-muted-foreground uppercase whitespace-nowrap">Acciones</th>
                   </tr>
@@ -162,17 +163,19 @@ import type { Cuenta, Propiedad, TipoPropiedad } from '../../core/models';
                       <td class="px-4 py-3 font-medium">
                         <div class="truncate" [title]="p.identificador">{{ p.identificador }}</div>
                       </td>
-                      <td class="px-4 py-3 text-right tabular-nums text-sm">
-                        {{ data.formatDiasMora(resumenCobro(p).edad_mora_dias) }}
-                      </td>
-                      <td class="px-4 py-3 text-sm text-muted-foreground">
-                        {{ data.formatFechaCorta(resumenCobro(p).fecha_inicio_cobro) }}
-                      </td>
-                      <td class="px-4 py-3 text-sm text-muted-foreground">
-                        {{ data.formatFechaCorta(resumenCobro(p).fecha_fin_cobro) }}
+                      <td
+                        class="px-4 py-3 text-right text-sm align-top max-w-[14rem]"
+                        [title]="data.formatResumenMoraTooltip(resumenCobro(p))"
+                      >
+                        <div class="font-medium tabular-nums text-foreground">
+                          {{ data.formatDiasMora(resumenCobro(p).edad_mora_dias) }}
+                        </div>
+                        <div class="text-xs text-muted-foreground mt-1 leading-snug line-clamp-2">
+                          {{ data.formatEtapaCobranzaCorta(resumenCobro(p).edad_mora_dias) }}
+                        </div>
                       </td>
                       <td class="px-3 py-3 text-right tabular-nums whitespace-nowrap align-middle">
-                        {{ data.formatCurrency(p.monto_a_la_fecha) }}
+                        {{ data.formatDeuda(data.getDeudaActualParaPropiedad(p)) }}
                       </td>
                       <td class="px-3 py-3 whitespace-nowrap align-middle text-right">
                         <div class="inline-flex items-center justify-end gap-1 shrink-0">
@@ -401,6 +404,18 @@ import type { Cuenta, Propiedad, TipoPropiedad } from '../../core/models';
                 />
               </div>
 
+              <div>
+                <label class="block text-sm font-medium text-foreground mb-1.5">Inicio del cobro (opcional)</label>
+                <input
+                  type="date"
+                  formControlName="fecha_inicio_cobro"
+                  class="w-full rounded-xl border border-input bg-background px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+                <p class="mt-1 text-xs text-muted-foreground">
+                  Fecha que el sistema registra como inicio de cobro para esta unidad. Déjala vacía si no aplica.
+                </p>
+              </div>
+
               <div class="flex gap-3 pt-2">
                 <button
                   type="button"
@@ -529,6 +544,7 @@ export class ClienteDetailPage {
     direccion: ['', Validators.required],
     notas: [''],
     saldo_inicial: [0, [Validators.required, Validators.min(0)]],
+    fecha_inicio_cobro: [''],
   });
 
   clientReportOpen = signal(false);
@@ -546,7 +562,7 @@ export class ClienteDetailPage {
     this.id() ? this.data.getCuentasByCliente(this.id()) : []
   );
   totalMonto = computed(() =>
-    this.propiedades().reduce((sum, p) => sum + p.monto_a_la_fecha, 0)
+    this.propiedades().reduce((sum, p) => sum + this.data.getDeudaActualParaPropiedad(p), 0)
   );
 
   constructor(
@@ -587,6 +603,7 @@ export class ClienteDetailPage {
       direccion: '',
       notas: '',
       saldo_inicial: 0,
+      fecha_inicio_cobro: '',
     });
     this.propiedadCreateOpen.set(true);
   }
@@ -605,7 +622,8 @@ export class ClienteDetailPage {
       identificador: propiedad.identificador,
       direccion: propiedad.direccion,
       notas: propiedad.notas ?? '',
-      saldo_inicial: propiedad.monto_a_la_fecha,
+      saldo_inicial: Number(propiedad.saldo_inicial ?? propiedad.monto_a_la_fecha),
+      fecha_inicio_cobro: propiedad.fecha_inicio_cobro?.trim().slice(0, 10) ?? '',
     });
     this.propiedadCreateOpen.set(true);
   }
@@ -684,12 +702,18 @@ export class ClienteDetailPage {
     this.propiedadCreateLoading.set(true);
     try {
       const saldoInicial = Math.max(0, Number(this.propiedadForm.value.saldo_inicial ?? 0));
+      const fechaRaw = this.propiedadForm.value.fecha_inicio_cobro;
+      const fecha_inicio_cobro =
+        typeof fechaRaw === 'string' && fechaRaw.trim() !== ''
+          ? fechaRaw.trim().slice(0, 10)
+          : null;
       const commonPayload: UpdatePropiedadPayload = {
         tipo_propiedad: this.propiedadForm.value.tipo_propiedad as TipoPropiedad,
         identificador: this.propiedadForm.value.identificador ?? '',
         direccion: this.propiedadForm.value.direccion ?? '',
         notas: (this.propiedadForm.value.notas ?? '').trim(),
         saldo_inicial: saldoInicial,
+        fecha_inicio_cobro,
       };
       const editingId = this.propiedadEditingId();
       if (editingId) {
@@ -708,6 +732,7 @@ export class ClienteDetailPage {
         direccion: '',
         notas: '',
         saldo_inicial: 0,
+        fecha_inicio_cobro: '',
       });
     } catch (err) {
       const backendMessage =

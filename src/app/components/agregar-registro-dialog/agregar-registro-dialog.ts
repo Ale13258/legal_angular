@@ -55,11 +55,13 @@ import type { ConceptoPago, EstadoPago } from '../../core/models';
                 type="number"
                 min="0"
                 step="1"
-                [value]="0"
-                readonly
-                class="w-full rounded-xl border border-input bg-muted/50 px-4 py-2.5 text-sm text-muted-foreground cursor-not-allowed"
+                [value]="valorCobrado()"
+                (input)="onValorCobradoInput($event)"
+                class="w-full rounded-xl border border-input bg-background px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
               />
-              <p class="mt-1 text-xs text-muted-foreground">Este valor es fijo y no se edita desde el historial.</p>
+              <p class="mt-1 text-xs text-muted-foreground">
+                Monto facturado en el periodo. La deuda del cliente se mantiene no negativa.
+              </p>
             </div>
             <div>
               <label class="block text-sm font-medium text-foreground mb-1.5">Valor pagado (COP)</label>
@@ -99,7 +101,7 @@ import type { ConceptoPago, EstadoPago } from '../../core/models';
           </div>
 
           <p class="text-xs text-muted-foreground">
-            Inicio y fin del cobro los calcula el sistema (alta de la propiedad y saldo); no se capturan aquí.
+            La fecha de inicio de cobro de la unidad se puede definir al crear o editar la propiedad en el cliente.
           </p>
 
           <div>
@@ -142,6 +144,7 @@ export class AgregarRegistroDialog {
 
   periodo = signal(this.periodoActual());
   concepto = signal<ConceptoPago>('administracion');
+  valorCobrado = signal(0);
   valorPagado = signal(0);
   fechaPago = signal('');
   estadoPago = signal<EstadoPago>('pendiente');
@@ -172,12 +175,18 @@ export class AgregarRegistroDialog {
     void this.guardar();
   }
 
+  onValorCobradoInput(event: Event): void {
+    const target = event.target as HTMLInputElement | null;
+    const raw = +(target?.value ?? 0);
+    this.valorCobrado.set(raw < 0 ? 0 : raw);
+  }
+
   async guardar(): Promise<void> {
     const propiedadId = this.propiedad().id;
     const payload = {
       periodo: this.periodo(),
       concepto: this.concepto(),
-      valor_cobrado: 0,
+      valor_cobrado: this.valorCobrado(),
       valor_pagado: this.valorPagado(),
       fecha_pago: this.fechaPago(),
       estado_pago: this.estadoPago(),
@@ -198,6 +207,7 @@ export class AgregarRegistroDialog {
   private reset(): void {
     this.periodo.set(this.periodoActual());
     this.concepto.set('administracion');
+    this.valorCobrado.set(0);
     this.valorPagado.set(0);
     this.fechaPago.set('');
     this.estadoPago.set('pendiente');

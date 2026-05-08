@@ -1,5 +1,6 @@
 import { HttpParams } from '@angular/common/http';
 import { Injectable, inject, signal } from '@angular/core';
+import { etiquetaCortaParaDiasMora, etiquetaParaDiasMora } from '../mora-etapas';
 import { HttpService } from '../http/http.service';
 import type {
   Cliente,
@@ -33,6 +34,8 @@ export type CreatePropiedadPayload = {
   direccion: string;
   notas: string;
   saldo_inicial: number;
+  /** ISO fecha `YYYY-MM-DD`; opcional según contrato del API */
+  fecha_inicio_cobro?: string | null;
 };
 
 export type UpdatePropiedadPayload = {
@@ -41,6 +44,7 @@ export type UpdatePropiedadPayload = {
   direccion: string;
   notas: string;
   saldo_inicial: number;
+  fecha_inicio_cobro?: string | null;
 };
 
 export type CreateCuentaPayload = {
@@ -130,12 +134,43 @@ export class DataService {
   };
 
   formatCurrency(value: number): string {
+    const numeric = Number(value);
+    const safeValue = Number.isFinite(numeric) ? numeric : 0;
     return new Intl.NumberFormat('es-CO', {
       style: 'currency',
       currency: 'COP',
       minimumFractionDigits: 0,
       maximumFractionDigits: 0,
-    }).format(value);
+    }).format(safeValue);
+  }
+
+  /** Deuda en UI: nunca negativa. */
+  formatDeuda(value: number | null | undefined): string {
+    const numeric = Number(value);
+    const safeDebt = Number.isFinite(numeric) ? Math.max(0, numeric) : 0;
+    return this.formatCurrency(safeDebt);
+  }
+
+  /** Total cobrado de la unidad = valor inicial registrado al crearla. */
+  getTotalCobradoParaPropiedad(p: Propiedad): number {
+    const inicial = Number(p.saldo_inicial);
+    if (Number.isFinite(inicial)) return Math.max(0, inicial);
+    const deudaActual = Number.isFinite(Number(p.monto_a_la_fecha)) ? Math.max(0, Number(p.monto_a_la_fecha)) : 0;
+    const totalPagado = this.getHistorialByPropiedad(p.id).reduce(
+      (sum, h) => sum + (Number.isFinite(Number(h.valor_pagado)) ? Number(h.valor_pagado) : 0),
+      0
+    );
+    // Fallback para propiedades legacy sin `saldo_inicial`: inicial ≈ deuda actual + pagos acumulados.
+    return Math.max(0, deudaActual + totalPagado);
+  }
+
+  /** Deuda actual calculada: saldo inicial - pagos acumulados (nunca negativa). */
+  getDeudaActualParaPropiedad(p: Propiedad): number {
+    const totalPagado = this.getHistorialByPropiedad(p.id).reduce(
+      (sum, h) => sum + (Number.isFinite(Number(h.valor_pagado)) ? Number(h.valor_pagado) : 0),
+      0
+    );
+    return Math.max(0, this.getTotalCobradoParaPropiedad(p) - totalPagado);
   }
 
   /** Fecha ISO `YYYY-MM-DD` o vacío → texto corto es-CO o em dash. */
@@ -158,9 +193,52 @@ export class DataService {
     return `${n} días`;
   }
 
+  /** Etiqueta larga de etapa de cobranza (pre-jurídico / jurídico por tramos). */
+  formatEtapaCobranza(dias: number | null | undefined): string {
+    return etiquetaParaDiasMora(dias);
+  }
+
+  /** Etiqueta corta para tablas y listados. */
+  formatEtapaCobranzaCorta(dias: number | null | undefined): string {
+    return etiquetaCortaParaDiasMora(dias);
+  }
+
   /**
-   * Cobro y mora por **propiedad** (unidad). `fecha_inicio_cobro` viene del API o,
-   * si falta, de `propiedad.created_at` (día de alta en la plataforma).
+   * Tooltip en listados: días, etapa de cobranza y fechas de contexto en un solo bloque.
+   */
+  formatResumenMoraTooltip(r: {
+    edad_mora_dias: number | null;
+    fecha_inicio_cobro: string | null;
+    fecha_fin_cobro: string | null;
+    identificador?: string;
+  }): string {
+    return [
+      `Días en mora: ${this.formatDiasMora(r.edad_mora_dias)}`,
+      this.formatEtapaCobranza(r.edad_mora_dias),
+      `Inicio cobro (sistema): ${this.formatFechaCorta(r.fecha_inicio_cobro)}`,
+      `Fin cobro: ${this.formatFechaCorta(r.fecha_fin_cobro)}`,
+    ].join('\n');
+  }
+
+  /** Una sola línea para PDF/Excel: días y etapa corta. */
+  formatEdadMoraCompacta(r: {
+    edad_mora_dias: number | null;
+  }): string {
+    const d = this.formatDiasMora(r.edad_mora_dias);
+    const e = this.formatEtapaCobranzaCorta(r.edad_mora_dias);
+    if (d === '—' && e === '—') return '—';
+    return `${d} · ${e}`;
+  }
+
+  /**
+   * Cobro y mora por **propiedad** (unidad).
+   *
+   * **Contrato con backend:** `edad_mora_dias` en la respuesta de `GET …/propiedades/:id` es la
+   * fuente principal. Se calcula en servidor al crear/borrar historial (`refreshPropiedadMoraAggregates`):
+   * mismo criterio que el fallback aquí: **máximo** de `dias_en_mora` por línea de historial.
+   * No duplicar `computeDiasEnMora` en el cliente salvo datos ausentes en caché.
+   *
+   * `fecha_inicio_cobro` solo refleja lo que envía el API (o fallback por historial).
    */
   getResumenMoraCobroParaPropiedad(p: Propiedad): {
     edad_mora_dias: number | null;
@@ -171,8 +249,7 @@ export class DataService {
     const maxMoraFromHist = this.maxDiasMoraFromHistorial(historial);
     return {
       edad_mora_dias: p.edad_mora_dias ?? maxMoraFromHist,
-      fecha_inicio_cobro:
-        p.fecha_inicio_cobro?.trim() || this.fechaDiaDesdeIso(p.created_at),
+      fecha_inicio_cobro: p.fecha_inicio_cobro?.trim() || this.fechaInicioCobroDesdeHistorial(historial),
       fecha_fin_cobro: p.fecha_fin_cobro?.trim() || this.fechaFinCobroDesdeHistorial(historial),
     };
   }
@@ -193,6 +270,26 @@ export class DataService {
     const day = parts.find((p) => p.type === 'day')?.value;
     if (!year || !month || !day) return null;
     return `${year}-${month}-${day}`;
+  }
+
+  /**
+   * Fecha inicio cobro (fallback): movimiento más antiguo registrado en historial.
+   */
+  private fechaInicioCobroDesdeHistorial(rows: HistorialPago[]): string | null {
+    if (rows.length === 0) return null;
+    const ordenado = rows
+      .slice()
+      .sort(
+        (a, b) =>
+          new Date((a.fecha_pago || a.created_at) ?? 0).getTime() -
+          new Date((b.fecha_pago || b.created_at) ?? 0).getTime()
+      );
+    const inicio = ordenado[0];
+    const fuente = (inicio?.fecha_pago || inicio?.created_at || '').trim();
+    if (!fuente) return null;
+    const ymdDirecto = fuente.slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(ymdDirecto)) return ymdDirecto;
+    return this.fechaDiaDesdeIso(fuente);
   }
 
   /**
@@ -217,6 +314,10 @@ export class DataService {
     return this.fechaDiaDesdeIso(fuente);
   }
 
+  /**
+   * Fallback alineado con el backend: el agregado `edad_mora_dias` es el **máximo** de
+   * `dias_en_mora` por movimiento (periodo más atrasado suele tener más días).
+   */
   private maxDiasMoraFromHistorial(rows: HistorialPago[]): number | null {
     let maxMora: number | null = null;
     for (const h of rows) {
@@ -262,9 +363,11 @@ export class DataService {
   async addHistorialPago(propiedadId: string, payload: AddHistorialPayload): Promise<HistorialPago> {
     const path = `/propiedades/${propiedadId}/historial`;
     console.log('[LegalDebug][DataService] addHistorialPago -> POST', { path, propiedadId, payload });
+    const hadHistorialBefore = this.getHistorialByPropiedad(propiedadId).length > 0;
     try {
       const record = await this.http.post<HistorialPago>(path, payload);
       console.log('[LegalDebug][DataService] addHistorialPago POST OK', record);
+      await this.ensureFechaInicioCobroOnPrimerRegistro(propiedadId, payload, hadHistorialBefore);
       await this.loadHistorialByPropiedad(propiedadId);
       await this.loadPropiedad(propiedadId);
       console.log('[LegalDebug][DataService] addHistorialPago reloads OK');
@@ -273,6 +376,63 @@ export class DataService {
       console.error('[LegalDebug][DataService] addHistorialPago FAIL', err);
       throw err;
     }
+  }
+
+  private async ensureFechaInicioCobroOnPrimerRegistro(
+    propiedadId: string,
+    payload: AddHistorialPayload,
+    hadHistorialBefore: boolean
+  ): Promise<void> {
+    if (hadHistorialBefore) return;
+    let propiedad = this.getPropiedadById(propiedadId);
+    if (!propiedad) {
+      try {
+        propiedad = await this.loadPropiedad(propiedadId);
+      } catch {
+        return;
+      }
+    }
+    if (propiedad.fecha_inicio_cobro?.trim()) return;
+    const fechaInicio = payload.fecha_pago?.trim()?.slice(0, 10) || this.todayBogotaYmd();
+    try {
+      const updated = await this.http.patch<Propiedad>(`/propiedades/${propiedadId}`, {
+        fecha_inicio_cobro: fechaInicio,
+      });
+      this.propiedadesSignal.update((prev) => this.upsertById(prev, this.normalizePropiedadMonto(updated, propiedad)));
+    } catch (err) {
+      // Fallback: algunos backends no aceptan PATCH parcial.
+      try {
+        const fallbackPayload: UpdatePropiedadPayload = {
+          tipo_propiedad: propiedad.tipo_propiedad,
+          identificador: propiedad.identificador,
+          direccion: propiedad.direccion,
+          notas: propiedad.notas ?? '',
+          saldo_inicial: Number(propiedad.saldo_inicial ?? propiedad.monto_a_la_fecha ?? 0),
+          fecha_inicio_cobro: fechaInicio,
+        };
+        await this.updatePropiedad(propiedadId, fallbackPayload);
+      } catch (fallbackErr) {
+        // No bloquea guardar historial si el backend no admite patch de inicio de cobro.
+        console.warn('[LegalDebug][DataService] No se pudo guardar fecha_inicio_cobro automatica', {
+          partialPatchError: err,
+          fullPatchError: fallbackErr,
+        });
+      }
+    }
+  }
+
+  private todayBogotaYmd(): string {
+    const date = new Date();
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Bogota',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(date);
+    const year = parts.find((p) => p.type === 'year')?.value ?? '1970';
+    const month = parts.find((p) => p.type === 'month')?.value ?? '01';
+    const day = parts.find((p) => p.type === 'day')?.value ?? '01';
+    return `${year}-${month}-${day}`;
   }
 
   async deleteHistorialPago(propiedadId: string, historialId: string): Promise<void> {
@@ -596,13 +756,22 @@ export class DataService {
 
   private normalizePropiedadMonto(propiedad: Propiedad, prev?: Propiedad): Propiedad {
     const monto = Number(propiedad.monto_a_la_fecha);
+    const saldoInicial = Number(propiedad.saldo_inicial);
+    const normalizedSaldoInicial = Number.isFinite(saldoInicial)
+      ? Math.max(0, saldoInicial)
+      : Number.isFinite(Number(prev?.saldo_inicial))
+        ? Math.max(0, Number(prev?.saldo_inicial))
+        : Number.isFinite(monto)
+          ? Math.max(0, monto)
+          : 0;
     if (Number.isFinite(monto)) {
-      return { ...propiedad, monto_a_la_fecha: monto };
+      return { ...propiedad, saldo_inicial: normalizedSaldoInicial, monto_a_la_fecha: Math.max(0, monto) };
     }
     return {
       ...propiedad,
+      saldo_inicial: normalizedSaldoInicial,
       // Si el detalle no trae monto válido, preservamos el último valor conocido (saldo inicial/monto cargado).
-      monto_a_la_fecha: Number(prev?.monto_a_la_fecha ?? 0),
+      monto_a_la_fecha: Math.max(0, Number(prev?.monto_a_la_fecha ?? 0)),
     };
   }
 

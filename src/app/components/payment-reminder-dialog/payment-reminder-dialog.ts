@@ -162,10 +162,10 @@ export class PaymentReminderDialog {
     const cl = this.data.getClienteById(this.propiedad().cliente_id);
     return cl?.nombre ?? '';
   });
-  montoPendiente = computed(() => {
-    const deuda = this.toNumber(this.propiedad().monto_a_la_fecha);
-    return deuda > 0 ? deuda : 0;
-  });
+  /** Misma lógica que "Deuda a la fecha" en el detalle: saldo − pagos (se actualiza con el historial). */
+  montoPendiente = computed(() =>
+    this.data.getDeudaActualParaPropiedad(this.propiedad())
+  );
 
   constructor(protected data: DataService) {
     effect(() => {
@@ -255,11 +255,6 @@ export class PaymentReminderDialog {
   </div>
 </body>
 </html>`;
-  }
-
-  private toNumber(value: unknown): number {
-    const numeric = Number(value);
-    return Number.isFinite(numeric) ? numeric : 0;
   }
 
 }

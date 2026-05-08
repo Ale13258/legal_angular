@@ -88,26 +88,29 @@ import type { EstadoCuentaFile } from '../../core/models';
             </button>
             <div class="rounded-xl border border-border/50 bg-card p-4 sm:p-5 mb-4">
               <h3 class="text-sm font-semibold text-foreground mb-3">Cobro de esta unidad</h3>
-              <p class="text-xs text-muted-foreground mb-3">
-                Edad en mora e inicio/fin de cobro aplican a esta propiedad (apartamento/local), no a cada fila del historial.
-              </p>
-              <dl class="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
-                <div>
-                  <dt class="text-muted-foreground text-xs uppercase tracking-wide mb-1">Edad en mora</dt>
-                  <dd class="font-medium tabular-nums">
-                    {{ data.formatDiasMora(data.getResumenMoraCobroParaPropiedad(propiedad()!).edad_mora_dias) }}
+              <dl class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+                <div class="sm:col-span-2">
+                  <dt class="text-muted-foreground text-xs uppercase tracking-wide mb-1">Etapa de cobranza</dt>
+                  <dd class="font-medium text-foreground leading-snug">
+                    {{ data.formatEtapaCobranza(resumenMora()?.edad_mora_dias) }}
                   </dd>
                 </div>
                 <div>
-                  <dt class="text-muted-foreground text-xs uppercase tracking-wide mb-1">Inicio del cobro</dt>
-                  <dd class="font-medium" title="Día en que se registró esta propiedad en la plataforma">
-                    {{ data.formatFechaCorta(data.getResumenMoraCobroParaPropiedad(propiedad()!).fecha_inicio_cobro) }}
+                  <dt class="text-muted-foreground text-xs uppercase tracking-wide mb-1">Edad en mora</dt>
+                  <dd class="font-medium tabular-nums">
+                    {{ data.formatDiasMora(resumenMora()?.edad_mora_dias) }}
+                  </dd>
+                </div>
+                <div>
+                  <dt class="text-muted-foreground text-xs uppercase tracking-wide mb-1">Inicio del cobro (sistema)</dt>
+                  <dd class="font-medium" title="Solo si el backend envía fecha_inicio_cobro">
+                    {{ data.formatFechaCorta(resumenMora()?.fecha_inicio_cobro) }}
                   </dd>
                 </div>
                 <div>
                   <dt class="text-muted-foreground text-xs uppercase tracking-wide mb-1">Fin del cobro</dt>
                   <dd class="font-medium">
-                    {{ data.formatFechaCorta(data.getResumenMoraCobroParaPropiedad(propiedad()!).fecha_fin_cobro) }}
+                    {{ data.formatFechaCorta(resumenMora()?.fecha_fin_cobro) }}
                   </dd>
                 </div>
               </dl>
@@ -178,7 +181,7 @@ import type { EstadoCuentaFile } from '../../core/models';
                         <app-status-badge [label]="data.estadoPagoLabels[h.estado_pago]" [variant]="h.estado_pago" />
                       </td>
                       <td class="px-4 py-3 text-muted-foreground">{{ h.fecha_pago || '—' }}</td>
-                      <td class="px-4 py-3 text-right tabular-nums">{{ data.formatCurrency(h.monto_a_la_fecha) }}</td>
+                      <td class="px-4 py-3 text-right tabular-nums">{{ data.formatDeuda(h.monto_a_la_fecha) }}</td>
                       <td class="px-4 py-3">
                         <div class="flex items-center justify-end gap-1">
                           <button type="button" class="p-2 rounded-lg text-muted-foreground hover:text-primary hover:bg-secondary" title="Editar">
@@ -443,6 +446,10 @@ export class PropiedadDetailPage {
 
   private id = computed(() => this.route.snapshot.paramMap.get('id')!);
   propiedad = computed(() => this.data.getPropiedadById(this.id()));
+  resumenMora = computed(() => {
+    const p = this.propiedad();
+    return p ? this.data.getResumenMoraCobroParaPropiedad(p) : null;
+  });
   cliente = computed(() => (this.propiedad() ? this.data.getClienteById(this.propiedad()!.cliente_id) : undefined));
   historial = computed(() => {
     this.refreshTrigger();
@@ -451,11 +458,14 @@ export class PropiedadDetailPage {
   gestiones = computed(() => (this.id() ? this.data.getGestionesByPropiedad(this.id()) : []));
   estadoCuentaFiles = computed(() => (this.id() ? this.data.getEstadoCuentaFilesByPropiedad(this.id()) : []));
 
-  totalCobrado = computed(() => this.deudaActual());
+  totalCobrado = computed(() => {
+    const p = this.propiedad();
+    return p ? this.data.getTotalCobradoParaPropiedad(p) : 0;
+  });
   totalPagado = computed(() => this.historial().reduce((s, h) => s + this.toNumber(h.valor_pagado), 0));
   deudaActual = computed(() => {
-    const deuda = this.toNumber(this.propiedad()?.monto_a_la_fecha);
-    return deuda > 0 ? deuda : 0;
+    const p = this.propiedad();
+    return p ? this.data.getDeudaActualParaPropiedad(p) : 0;
   });
 
   chartData = computed((): ChartConfiguration<'bar'>['data'] => {
