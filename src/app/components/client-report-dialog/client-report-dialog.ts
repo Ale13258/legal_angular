@@ -1,17 +1,34 @@
 import { Component, computed, effect, input, output, signal } from '@angular/core';
 import { DataService } from '../../core/services/data.service';
 import type { Cliente, Propiedad } from '../../core/models';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
+import { DeudorCell } from '../../shared/deudor-cell/deudor-cell';
 import * as XLSX from 'xlsx';
+import {
+  buildClientReportResumenRows,
+  downloadClientGeneralReportPdf,
+  resumenPropiedadPdfRow,
+} from '../../core/report-export/client-general-report-pdf';
+import {
+  buildHeading,
+  buildKeyValueLines,
+  buildParagraph,
+  buildSpacer,
+  buildSubheading,
+  buildTable,
+  saveDocx,
+} from '../../core/report-export/report-docx';
 
 @Component({
   selector: 'app-client-report-dialog',
   standalone: true,
+  imports: [DeudorCell],
   template: `
     <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div class="fixed inset-0 bg-black/50" (click)="openChange.emit(false)"></div>
-      <div class="relative z-50 bg-card rounded-2xl shadow-lg border border-border max-w-2xl w-full max-h-[90vh] overflow-auto">
+      <div
+        class="relative z-50 bg-card rounded-2xl shadow-lg border border-border max-w-5xl w-full max-h-[90vh] overflow-auto"
+        (click)="$event.stopPropagation()"
+      >
         <div class="sticky top-0 bg-card border-b border-border px-6 py-4 flex items-center justify-between shrink-0">
           <h2 class="font-display text-xl font-bold text-foreground">Informe General del Cliente</h2>
           <button
@@ -40,40 +57,59 @@ import * as XLSX from 'xlsx';
             <p><strong class="text-foreground">Cliente:</strong> {{ cliente().nombre }}</p>
           </div>
 
-          <div class="grid grid-cols-3 gap-3">
-            <div class="bg-muted/50 rounded-xl p-4 text-center border border-border/50">
-              <p class="text-xs text-muted-foreground mb-1">Cobrado</p>
-              <p class="font-bold text-foreground">{{ data.formatCurrency(totalCobrado()) }}</p>
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div class="min-w-0 rounded-xl border border-border/50 bg-muted/50 p-4">
+              <p class="text-xs text-muted-foreground mb-1 text-center">Cobrado</p>
+              <p class="font-bold tabular-nums text-foreground text-center text-lg leading-tight break-words">
+                {{ data.formatCurrency(totalCobrado()) }}
+              </p>
             </div>
-            <div class="bg-muted/50 rounded-xl p-4 text-center border border-border/50">
-              <p class="text-xs text-muted-foreground mb-1">Pagado</p>
-              <p class="font-bold text-foreground">{{ data.formatCurrency(totalPagado()) }}</p>
+            <div class="min-w-0 rounded-xl border border-border/50 bg-muted/50 p-4">
+              <p class="text-xs text-muted-foreground mb-1 text-center">Pagado</p>
+              <p class="font-bold tabular-nums text-foreground text-center text-lg leading-tight break-words">
+                {{ data.formatCurrency(totalPagado()) }}
+              </p>
             </div>
-            <div class="rounded-xl p-4 text-center border-2 border-primary/30 bg-primary/5">
-              <p class="text-xs text-muted-foreground mb-1">Deuda a la fecha</p>
-              <p class="font-bold text-primary">{{ data.formatCurrency(saldo()) }}</p>
+            <div class="min-w-0 rounded-xl border-2 border-primary/30 bg-primary/5 p-4">
+              <p class="text-xs text-muted-foreground mb-1 text-center">Deuda a la fecha</p>
+              <p class="font-bold tabular-nums text-primary text-center text-lg leading-tight break-words">
+                {{ data.formatCurrency(saldo()) }}
+              </p>
             </div>
           </div>
 
           <div>
             <h3 class="text-sm font-semibold text-foreground mb-2">Por propiedad (unidad)</h3>
             <p class="text-xs text-muted-foreground mb-2">
-              Edad en mora agregada por unidad (días y etapa; fechas en tooltip al pasar el cursor).
+              Deudor actualizado por unidad. Pasa el cursor sobre Deudor para ver documento y correo.
             </p>
             <div class="overflow-x-auto rounded-xl border border-border">
-              <table class="w-full text-sm">
+              <table class="w-full min-w-[52rem] text-sm">
                 <thead>
                   <tr class="border-b border-border bg-muted/30">
                     <th class="text-left px-3 py-2 font-semibold text-muted-foreground">Unidad</th>
+                    <th class="deudor-col text-left px-3 py-2 font-semibold text-muted-foreground">Deudor</th>
+                    <th class="text-left px-3 py-2 font-semibold text-muted-foreground">Documento</th>
+                    <th class="text-left px-3 py-2 font-semibold text-muted-foreground">Correo</th>
                     <th class="text-right px-3 py-2 font-semibold text-muted-foreground">Edad en mora</th>
+                    <th class="text-right px-3 py-2 font-semibold text-muted-foreground">Deuda a la fecha</th>
                   </tr>
                 </thead>
                 <tbody>
                   @for (row of resumenPorPropiedad(); track row.identificador) {
                     <tr class="border-b border-border/50">
-                      <td class="px-3 py-2 font-medium">{{ row.identificador }}</td>
+                      <td class="px-3 py-2 font-medium align-top">{{ row.identificador }}</td>
+                      <td class="deudor-col px-3 py-2 align-top max-w-[11rem]">
+                        <app-deudor-cell [propiedad]="row.propiedad" />
+                      </td>
+                      <td class="px-3 py-2 text-muted-foreground align-top whitespace-nowrap">
+                        {{ row.documentoLabel }}
+                      </td>
+                      <td class="px-3 py-2 text-muted-foreground align-top max-w-[12rem]">
+                        <div class="truncate" [title]="row.correo">{{ row.correo }}</div>
+                      </td>
                       <td
-                        class="px-3 py-2 text-right align-top max-w-[18rem]"
+                        class="px-3 py-2 text-right align-top max-w-[14rem]"
                         [title]="data.formatResumenMoraTooltip(row)"
                       >
                         <div class="font-medium tabular-nums text-foreground">
@@ -82,6 +118,9 @@ import * as XLSX from 'xlsx';
                         <div class="text-xs text-muted-foreground mt-1 leading-snug">
                           {{ data.formatEtapaCobranzaCorta(row.edad_mora_dias) }}
                         </div>
+                      </td>
+                      <td class="px-3 py-2 text-right tabular-nums font-semibold align-top whitespace-nowrap">
+                        {{ data.formatDeuda(row.deuda) }}
                       </td>
                     </tr>
                   }
@@ -131,11 +170,11 @@ import * as XLSX from 'xlsx';
             ></textarea>
           </div>
 
-          <div class="flex gap-3 pt-2">
+          <div class="flex flex-wrap gap-3 pt-2">
             <button
               type="button"
               (click)="downloadPdf()"
-              class="flex-1 inline-flex items-center justify-center gap-2 rounded-xl bg-primary text-primary-foreground px-4 py-3 text-sm font-medium hover:opacity-90"
+              class="flex-1 min-w-[140px] inline-flex items-center justify-center gap-2 rounded-xl bg-primary text-primary-foreground px-4 py-3 text-sm font-medium hover:opacity-90"
             >
               <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M12 18v-6"/><path d="M9 15l3 3 3-3"/></svg>
               Descargar PDF
@@ -143,10 +182,18 @@ import * as XLSX from 'xlsx';
             <button
               type="button"
               (click)="downloadExcel()"
-              class="flex-1 inline-flex items-center justify-center gap-2 rounded-xl border-2 border-primary text-primary px-4 py-3 text-sm font-medium hover:bg-primary/5"
+              class="flex-1 min-w-[140px] inline-flex items-center justify-center gap-2 rounded-xl border-2 border-primary text-primary px-4 py-3 text-sm font-medium hover:bg-primary/5"
             >
               <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8"/><path d="M8 17h8"/><path d="M10 9h4"/></svg>
               Descargar Excel
+            </button>
+            <button
+              type="button"
+              (click)="downloadWord()"
+              class="flex-1 min-w-[140px] inline-flex items-center justify-center gap-2 rounded-xl border-2 border-primary text-primary px-4 py-3 text-sm font-medium hover:bg-primary/5"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></svg>
+              Descargar Word
             </button>
           </div>
         </div>
@@ -181,110 +228,43 @@ export class ClientReportDialog {
     this.propiedades().reduce((sum, p) => sum + this.data.getTotalCobradoParaPropiedad(p), 0)
   );
   totalPagado = computed(() =>
-    this.allData().reduce((s, h) => s + h.valor_pagado, 0)
+    this.propiedades().reduce((sum, p) => sum + this.data.getTotalPagadoParaPropiedad(p), 0),
   );
   saldo = computed(() =>
     this.propiedades().reduce((sum, p) => sum + this.data.getDeudaActualParaPropiedad(p), 0)
   );
 
   resumenPorPropiedad = computed(() =>
-    this.propiedades().map((p) => {
-      const r = this.data.getResumenMoraCobroParaPropiedad(p);
-      return {
-        identificador: p.identificador,
-        edad_mora_dias: r.edad_mora_dias,
-        fecha_inicio_cobro: r.fecha_inicio_cobro,
-        fecha_fin_cobro: r.fecha_fin_cobro,
-      };
-    })
+    buildClientReportResumenRows(this.data, this.propiedades()),
   );
+
+  /** Solo inicializa título/notas al abrir el informe, no en cada refresco de datos del cliente. */
+  private lastSyncedClienteKey: string | null = null;
 
   constructor(protected data: DataService) {
     effect(() => {
+      if (!this.open()) {
+        this.lastSyncedClienteKey = null;
+        return;
+      }
       const c = this.cliente();
-      if (c?.nombre) this.titulo.set(`Informe General – ${c.nombre}`);
+      const key = c?.id ?? '';
+      if (!key || this.lastSyncedClienteKey === key) return;
+      this.lastSyncedClienteKey = key;
+      if (c.nombre) this.titulo.set(`Informe General – ${c.nombre}`);
+      this.notasExtra.set('');
     });
   }
 
   downloadPdf(): void {
-    const c = this.cliente();
-    const tituloDoc = this.titulo() || `Informe General – ${c.nombre}`;
-    const doc = new jsPDF();
-    doc.setFontSize(16);
-    doc.text(tituloDoc, 14, 20);
-    doc.setFontSize(10);
-    doc.text(`Fecha: ${this.fecha}`, 14, 28);
-    doc.text(`Cliente: ${c.nombre}`, 14, 34);
-    doc.setFontSize(11);
-    doc.text('Resumen Financiero', 14, 46);
-    doc.setFontSize(10);
-    doc.text(
-      `Total Cobrado: ${this.data.formatCurrency(this.totalCobrado())}`,
-      14,
-      53
-    );
-    doc.text(
-      `Total Pagado: ${this.data.formatCurrency(this.totalPagado())}`,
-      14,
-      59
-    );
-    doc.setFont(undefined as unknown as string, 'bold');
-    doc.text(
-      `Deuda a la fecha: ${this.data.formatCurrency(this.saldo())}`,
-      14,
-      65
-    );
-    doc.setFont(undefined as unknown as string, 'normal');
-    const notas = this.notasExtra()?.trim();
-    let startY = 74;
-    if (notas) {
-      doc.setFontSize(10);
-      doc.text('Notas:', 14, startY);
-      startY += 6;
-      const lines = doc.splitTextToSize(notas, 180);
-      doc.text(lines, 14, startY);
-      startY += lines.length * 5 + 8;
-    }
-    doc.setFontSize(11);
-    doc.text('Por propiedad (unidad)', 14, startY);
-    doc.setFontSize(10);
-    startY += 6;
-    const resumen = this.resumenPorPropiedad();
-    autoTable(doc, {
-      startY,
-      head: [['Unidad', 'Edad en mora']],
-      body: resumen.map((row) => [
-        row.identificador,
-        this.data.formatResumenMoraTooltip({
-          edad_mora_dias: row.edad_mora_dias,
-          fecha_inicio_cobro: row.fecha_inicio_cobro,
-          fecha_fin_cobro: row.fecha_fin_cobro,
-        }),
-      ]),
-      styles: { fontSize: 8 },
-      headStyles: { fillColor: [107, 60, 200] },
+    downloadClientGeneralReportPdf({
+      data: this.data,
+      cliente: this.cliente(),
+      propiedades: this.propiedades(),
+      titulo: this.titulo(),
+      notas: this.notasExtra(),
+      fecha: this.fecha,
     });
-    const docLt = doc as unknown as { lastAutoTable?: { finalY: number } };
-    const yAfterResumen = docLt.lastAutoTable?.finalY ?? startY + 24;
-    const allData = this.allData();
-    doc.setFontSize(11);
-    doc.text('Detalle de transacciones', 14, yAfterResumen + 8);
-    doc.setFontSize(10);
-    autoTable(doc, {
-      startY: yAfterResumen + 14,
-      head: [['Propiedad', 'Periodo', 'Concepto', 'Cobrado', 'Pagado', 'Estado']],
-      body: allData.map((h) => [
-        h.propiedad,
-        h.periodo,
-        this.data.conceptoLabels[h.concepto],
-        this.data.formatCurrency(h.valor_cobrado),
-        this.data.formatCurrency(h.valor_pagado),
-        this.data.estadoPagoLabels[h.estado_pago],
-      ]),
-      styles: { fontSize: 8 },
-      headStyles: { fillColor: [107, 60, 200] },
-    });
-    doc.save(`informe_general_${c.nombre.replace(/\s/g, '_')}.pdf`);
   }
 
   downloadExcel(): void {
@@ -292,14 +272,7 @@ export class ClientReportDialog {
     const tituloDoc = this.titulo() || `Informe General – ${c.nombre}`;
     const allData = this.allData();
     const notas = this.notasExtra()?.trim();
-    const resumenRows = this.resumenPorPropiedad().map((row) => [
-      row.identificador,
-      this.data.formatResumenMoraTooltip({
-        edad_mora_dias: row.edad_mora_dias,
-        fecha_inicio_cobro: row.fecha_inicio_cobro,
-        fecha_fin_cobro: row.fecha_fin_cobro,
-      }).replace(/\n/g, ' | '),
-    ]);
+    const resumenRows = this.resumenPorPropiedad().map((row) => this.resumenPropiedadExportRow(row));
     const wsData: (string | number)[][] = [
       [tituloDoc],
       [`Fecha: ${this.fecha}`],
@@ -311,7 +284,7 @@ export class ClientReportDialog {
       ...(notas ? [[], ['Notas', notas], []] : []),
       [],
       ['Por propiedad (unidad)'],
-      ['Unidad', 'Edad en mora (días, etapa, fechas)'],
+      ['Unidad', 'Deudor', 'Documento', 'Correo', 'Edad en mora', 'Deuda a la fecha'],
       ...resumenRows,
       [],
       ['Detalle de transacciones'],
@@ -343,9 +316,51 @@ export class ClientReportDialog {
     );
   }
 
-  private toNumber(value: unknown): number {
-    const numeric = Number(value);
-    return Number.isFinite(numeric) ? numeric : 0;
+  async downloadWord(): Promise<void> {
+    const c = this.cliente();
+    const tituloDoc = this.titulo() || `Informe General – ${c.nombre}`;
+    const allData = this.allData();
+    const notas = this.notasExtra()?.trim();
+    const resumen = this.resumenPorPropiedad();
+
+    const children = [
+      buildHeading(tituloDoc),
+      buildParagraph(`Fecha: ${this.fecha}`),
+      buildParagraph(`Cliente: ${c.nombre}`),
+      buildSubheading('Resumen Financiero'),
+      ...buildKeyValueLines([
+        ['Total Cobrado', this.data.formatCurrency(this.totalCobrado())],
+        ['Total Pagado', this.data.formatCurrency(this.totalPagado())],
+        ['Deuda a la fecha', this.data.formatCurrency(this.saldo())],
+      ]),
+      ...(notas
+        ? [buildSubheading('Notas'), buildParagraph(notas), buildSpacer()]
+        : [buildSpacer()]),
+      buildSubheading('Por propiedad (unidad)'),
+      buildTable(
+        ['Unidad', 'Deudor', 'Documento', 'Correo', 'Edad en mora', 'Deuda a la fecha'],
+        resumen.map((row) => this.resumenPropiedadExportRow(row)),
+      ),
+      buildSpacer(),
+      buildSubheading('Detalle de transacciones'),
+      buildTable(
+        ['Propiedad', 'Periodo', 'Concepto', 'Cobrado', 'Pagado', 'Estado'],
+        allData.map((h) => [
+          h.propiedad,
+          h.periodo,
+          this.data.conceptoLabels[h.concepto],
+          this.data.formatCurrency(h.valor_cobrado),
+          this.data.formatCurrency(h.valor_pagado),
+          this.data.estadoPagoLabels[h.estado_pago],
+        ])
+      ),
+    ];
+
+    await saveDocx(`informe_general_${c.nombre.replace(/\s/g, '_')}.docx`, children);
+  }
+
+  private resumenPropiedadExportRow(row: ReturnType<typeof buildClientReportResumenRows>[number]): string[] {
+    return resumenPropiedadPdfRow(this.data, row);
   }
 
 }

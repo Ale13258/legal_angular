@@ -1,9 +1,18 @@
 import { Component, computed, effect, input, output, signal } from '@angular/core';
 import { DataService } from '../../core/services/data.service';
-import type { Propiedad } from '../../core/models';
+import type { HistorialPago, Propiedad } from '../../core/models';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
+import {
+  buildHeading,
+  buildKeyValueLines,
+  buildParagraph,
+  buildSpacer,
+  buildSubheading,
+  buildTable,
+  saveDocx,
+} from '../../core/report-export/report-docx';
 
 @Component({
   selector: 'app-report-preview-dialog',
@@ -12,7 +21,10 @@ import * as XLSX from 'xlsx';
   template: `
     <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div class="fixed inset-0 bg-black/50" (click)="openChange.emit(false)"></div>
-      <div class="relative z-50 bg-card rounded-2xl shadow-lg border border-border max-w-2xl w-full max-h-[90vh] overflow-auto">
+      <div
+        class="relative z-50 bg-card rounded-2xl shadow-lg border border-border max-w-2xl w-full max-h-[90vh] overflow-auto"
+        (click)="$event.stopPropagation()"
+      >
         <!-- Header con título y cerrar -->
         <div class="sticky top-0 bg-card border-b border-border px-6 py-4 flex items-center justify-between shrink-0">
           <h2 class="font-display text-xl font-bold">Editar y Descargar Informe</h2>
@@ -96,8 +108,8 @@ import * as XLSX from 'xlsx';
                       <td class="px-3 py-2 text-right tabular-nums">{{ data.formatCurrency(h.valor_cobrado) }}</td>
                       <td class="px-3 py-2 text-right tabular-nums">{{ data.formatCurrency(h.valor_pagado) }}</td>
                       <td class="px-3 py-2">{{ data.estadoPagoLabels[h.estado_pago] }}</td>
-                      <td class="px-3 py-2 text-muted-foreground">{{ h.fecha_pago || '—' }}</td>
-                      <td class="px-3 py-2 text-right tabular-nums">{{ data.formatDeuda(h.monto_a_la_fecha) }}</td>
+                      <td class="px-3 py-2 text-muted-foreground">{{ data.formatFechaPago(h) }}</td>
+                      <td class="px-3 py-2 text-right tabular-nums">{{ data.formatDeuda(deudaHistorial(h)) }}</td>
                     </tr>
                   }
                 </tbody>
@@ -118,11 +130,11 @@ import * as XLSX from 'xlsx';
           </div>
 
           <!-- Botones Descargar -->
-          <div class="flex gap-3 pt-2">
+          <div class="flex flex-wrap gap-3 pt-2">
             <button
               type="button"
               (click)="downloadPdf()"
-              class="flex-1 inline-flex items-center justify-center gap-2 rounded-xl bg-primary text-primary-foreground px-4 py-3 text-sm font-medium hover:opacity-90"
+              class="flex-1 min-w-[140px] inline-flex items-center justify-center gap-2 rounded-xl bg-primary text-primary-foreground px-4 py-3 text-sm font-medium hover:opacity-90"
             >
               <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M12 18v-6"/><path d="M9 15l3 3 3-3"/></svg>
               Descargar PDF
@@ -130,10 +142,18 @@ import * as XLSX from 'xlsx';
             <button
               type="button"
               (click)="downloadExcel()"
-              class="flex-1 inline-flex items-center justify-center gap-2 rounded-xl border-2 border-primary text-primary px-4 py-3 text-sm font-medium hover:bg-primary/5"
+              class="flex-1 min-w-[140px] inline-flex items-center justify-center gap-2 rounded-xl border-2 border-primary text-primary px-4 py-3 text-sm font-medium hover:bg-primary/5"
             >
               <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8"/><path d="M8 17h8"/><path d="M10 9h4"/></svg>
               Descargar Excel
+            </button>
+            <button
+              type="button"
+              (click)="downloadWord()"
+              class="flex-1 min-w-[140px] inline-flex items-center justify-center gap-2 rounded-xl border-2 border-primary text-primary px-4 py-3 text-sm font-medium hover:bg-primary/5"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></svg>
+              Descargar Word
             </button>
           </div>
         </div>
@@ -170,10 +190,20 @@ export class ReportPreviewDialog {
 
   resumenCobroUnidad = computed(() => this.data.getResumenMoraCobroParaPropiedad(this.propiedad()));
 
+  private lastSyncedPropiedadKey: string | null = null;
+
   constructor(protected data: DataService) {
     effect(() => {
+      if (!this.open()) {
+        this.lastSyncedPropiedadKey = null;
+        return;
+      }
       const p = this.propiedad();
-      if (p?.identificador) this.titulo.set(`Informe de Cartera - ${p.identificador}`);
+      const key = p.id;
+      if (this.lastSyncedPropiedadKey === key) return;
+      this.lastSyncedPropiedadKey = key;
+
+      if (p.identificador) this.titulo.set(`Informe de Cartera - ${p.identificador}`);
       // Desde la ficha del cliente no se precarga el historial; sin esto el informe solo refleja deuda y la tabla queda vacía.
       void this.data.loadHistorialByPropiedad(p.id);
     });
@@ -182,6 +212,10 @@ export class ReportPreviewDialog {
   private toNumber(value: unknown): number {
     const numeric = Number(value);
     return Number.isFinite(numeric) ? numeric : 0;
+  }
+
+  deudaHistorial(h: HistorialPago): number {
+    return this.data.getDeudaParaHistorialPago(this.propiedad(), h);
   }
 
   downloadPdf(): void {
@@ -256,8 +290,8 @@ export class ReportPreviewDialog {
         this.data.formatCurrency(h.valor_cobrado),
         this.data.formatCurrency(h.valor_pagado),
         this.data.estadoPagoLabels[h.estado_pago],
-        h.fecha_pago || '—',
-        this.data.formatDeuda(h.monto_a_la_fecha),
+        this.data.formatFechaPago(h),
+        this.data.formatDeuda(this.data.getDeudaParaHistorialPago(p, h)),
       ]),
       styles: { fontSize: 8 },
       headStyles: { fillColor: [107, 60, 200] },
@@ -308,8 +342,8 @@ export class ReportPreviewDialog {
         h.valor_cobrado,
         h.valor_pagado,
         this.data.estadoPagoLabels[h.estado_pago],
-        h.fecha_pago || '—',
-        h.monto_a_la_fecha,
+        this.data.formatFechaPago(h),
+        this.data.getDeudaParaHistorialPago(p, h),
       ]),
     ];
     const ws = XLSX.utils.aoa_to_sheet(wsData);
@@ -325,5 +359,58 @@ export class ReportPreviewDialog {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Informe');
     XLSX.writeFile(wb, `informe_${p.identificador.replace(/\s/g, '_')}.xlsx`);
+  }
+
+  async downloadWord(): Promise<void> {
+    const p = this.propiedad();
+    const tituloDoc = this.titulo() || `Informe de Cartera — ${p.identificador}`;
+    const historial = this.historial();
+    const notas = this.notasExtra()?.trim();
+    const rc = this.resumenCobroUnidad();
+
+    const children = [
+      buildHeading(tituloDoc),
+      buildParagraph(`Fecha: ${this.fecha}`),
+      buildParagraph(`Cliente: ${this.clienteNombre()}`),
+      buildParagraph(`Propiedad: ${p.identificador} — ${p.direccion}`),
+      buildSubheading('Resumen Financiero'),
+      ...buildKeyValueLines([
+        ['Total Cobrado', this.data.formatCurrency(this.totalCobrado())],
+        ['Total Pagado', this.data.formatCurrency(this.totalPagado())],
+        ['Deuda a la fecha', this.data.formatCurrency(this.saldo())],
+      ]),
+      buildSubheading('Cobro de esta unidad'),
+      ...buildKeyValueLines([
+        ['Edad en mora', this.data.formatDiasMora(rc.edad_mora_dias)],
+        ['Etapa de cobranza', this.data.formatEtapaCobranza(rc.edad_mora_dias)],
+        ['Inicio del cobro (sistema)', this.data.formatFechaCorta(rc.fecha_inicio_cobro)],
+        ['Fin del cobro', this.data.formatFechaCorta(rc.fecha_fin_cobro)],
+      ]),
+      ...(notas
+        ? [buildSubheading('Notas'), buildParagraph(notas), buildSpacer()]
+        : [buildSpacer()]),
+      buildTable(
+        [
+          'Periodo',
+          'Concepto',
+          'Valor Cobrado',
+          'Valor Pagado',
+          'Estado',
+          'Fecha Pago',
+          'Deuda a la fecha',
+        ],
+        historial.map((h) => [
+          h.periodo,
+          this.data.conceptoLabels[h.concepto],
+          this.data.formatCurrency(h.valor_cobrado),
+          this.data.formatCurrency(h.valor_pagado),
+          this.data.estadoPagoLabels[h.estado_pago],
+          this.data.formatFechaPago(h),
+          this.data.formatDeuda(this.data.getDeudaParaHistorialPago(p, h)),
+        ])
+      ),
+    ];
+
+    await saveDocx(`informe_${p.identificador.replace(/\s/g, '_')}.docx`, children);
   }
 }

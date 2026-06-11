@@ -10,7 +10,7 @@ import { RegistrarGestionDialog } from '../../components/registrar-gestion-dialo
 import { AgregarRegistroDialog } from '../../components/agregar-registro-dialog/agregar-registro-dialog';
 import { fadeInFromLeft, fadeInUpStagger } from '../../core/animations/animations';
 import type { ChartConfiguration } from 'chart.js';
-import type { EstadoCuentaFile } from '../../core/models';
+import type { EstadoCuentaFile, Gestion, HistorialPago } from '../../core/models';
 
 @Component({
   selector: 'app-propiedad-detail-page',
@@ -89,6 +89,19 @@ import type { EstadoCuentaFile } from '../../core/models';
             <div class="rounded-xl border border-border/50 bg-card p-4 sm:p-5 mb-4">
               <h3 class="text-sm font-semibold text-foreground mb-3">Cobro de esta unidad</h3>
               <dl class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+                <div>
+                  <dt class="text-muted-foreground text-xs uppercase tracking-wide mb-1">Usuario a cobrar</dt>
+                  <dd class="font-medium text-foreground leading-snug">
+                    {{ propiedad()!.cobro_nombre }}
+                  </dd>
+                  <dd class="text-sm text-muted-foreground mt-0.5">
+                    {{ propiedad()!.cobro_tipo_persona === 'natural' ? 'CC' : 'NIT' }}:
+                    {{ propiedad()!.cobro_documento }}
+                  </dd>
+                  <dd class="text-sm text-muted-foreground mt-0.5">
+                    {{ propiedad()!.cobro_email }}
+                  </dd>
+                </div>
                 <div class="sm:col-span-2">
                   <dt class="text-muted-foreground text-xs uppercase tracking-wide mb-1">Etapa de cobranza</dt>
                   <dd class="font-medium text-foreground leading-snug">
@@ -145,7 +158,7 @@ import type { EstadoCuentaFile } from '../../core/models';
                 </button>
                 <button
                   type="button"
-                  (click)="registroOpen.set(true)"
+                  (click)="openNuevoRegistro()"
                   class="inline-flex items-center gap-1.5 rounded-xl bg-primary text-primary-foreground px-4 py-2 text-sm font-medium hover:opacity-90"
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
@@ -180,11 +193,16 @@ import type { EstadoCuentaFile } from '../../core/models';
                       <td class="px-4 py-3">
                         <app-status-badge [label]="data.estadoPagoLabels[h.estado_pago]" [variant]="h.estado_pago" />
                       </td>
-                      <td class="px-4 py-3 text-muted-foreground">{{ h.fecha_pago || '—' }}</td>
-                      <td class="px-4 py-3 text-right tabular-nums">{{ data.formatDeuda(h.monto_a_la_fecha) }}</td>
+                      <td class="px-4 py-3 text-muted-foreground">{{ data.formatFechaPago(h) }}</td>
+                      <td class="px-4 py-3 text-right tabular-nums">{{ data.formatDeuda(deudaHistorial(h)) }}</td>
                       <td class="px-4 py-3">
                         <div class="flex items-center justify-end gap-1">
-                          <button type="button" class="p-2 rounded-lg text-muted-foreground hover:text-primary hover:bg-secondary" title="Editar">
+                          <button
+                            type="button"
+                            (click)="editarRegistro(h)"
+                            class="p-2 rounded-lg text-muted-foreground hover:text-primary hover:bg-secondary"
+                            title="Editar"
+                          >
                             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
                           </button>
                           <button
@@ -213,7 +231,7 @@ import type { EstadoCuentaFile } from '../../core/models';
               </h2>
               <button
                 type="button"
-                (click)="gestionOpen.set(true)"
+                (click)="openNuevaGestion()"
                 class="inline-flex items-center gap-2 rounded-xl bg-primary text-primary-foreground px-4 py-2 text-sm font-medium hover:opacity-90"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
@@ -233,15 +251,15 @@ import type { EstadoCuentaFile } from '../../core/models';
                 @for (g of gestiones(); track g.id; let i = $index) {
                   <div
                     [@fadeInFromLeft]="{ value: '', params: { delay: i * 50, duration: 250 } }"
-                    class="relative"
+                    class="relative flex items-start justify-between gap-2"
                   >
                     <span
                       class="absolute w-3 h-3 rounded-full bg-primary border-2 border-card -left-[29px] sm:-left-[37px] top-2"
                       aria-hidden="true"
                     ></span>
-                    <div class="min-w-0">
+                    <div class="min-w-0 flex-1">
                       <div class="flex flex-wrap items-center gap-2 mb-1">
-                        <span class="text-muted-foreground text-xs font-medium">{{ g.fecha }}</span>
+                        <span class="text-muted-foreground text-xs font-medium">{{ data.formatGestionFecha(g) }}</span>
                         <app-status-badge
                           [label]="data.estadoGestionLabels[g.estado]"
                           [variant]="g.estado"
@@ -249,97 +267,30 @@ import type { EstadoCuentaFile } from '../../core/models';
                       </div>
                       <p class="text-foreground text-sm">{{ g.descripcion }}</p>
                     </div>
+                    <div class="flex items-start gap-1 shrink-0 ml-2">
+                      <button
+                        type="button"
+                        (click)="editarGestion(g)"
+                        class="p-2 rounded-lg text-muted-foreground hover:text-primary hover:bg-secondary"
+                        title="Editar gestión"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
+                      </button>
+                      <button
+                        type="button"
+                        (click)="openDeleteGestionConfirm(g)"
+                        class="p-2 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                        title="Eliminar gestión"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>
+                      </button>
+                    </div>
                   </div>
                 }
               </div>
             }
           </div>
 
-          <!-- Estados de Cuenta -->
-          <div class="bg-card rounded-2xl shadow-card p-4 sm:p-6 border border-border/50">
-            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
-              <h2 class="font-display font-bold text-lg flex items-center gap-2">
-                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-primary"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>
-                Estados de Cuenta
-              </h2>
-              <button
-                type="button"
-                (click)="triggerEstadoCuentaFilePicker()"
-                [disabled]="estadoCuentaUploading()"
-                class="inline-flex items-center gap-1.5 rounded-xl bg-primary text-primary-foreground px-4 py-2 text-sm font-medium hover:opacity-90"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
-                {{ estadoCuentaUploading() ? 'Subiendo...' : 'Subir Archivo' }}
-              </button>
-              <input
-                #estadoCuentaFileInput
-                type="file"
-                class="hidden"
-                accept=".pdf,.xlsx,.xls,.csv,.png,.jpg,.jpeg,.webp"
-                (change)="onEstadoCuentaFileSelected($event)"
-              />
-            </div>
-            @if (estadoCuentaError()) {
-              <div class="mb-3 rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                {{ estadoCuentaError() }}
-              </div>
-            }
-            @if (estadoCuentaLoading()) {
-              <div class="rounded-xl border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
-                Cargando archivos...
-              </div>
-            } @else if (estadoCuentaFiles().length === 0) {
-              <div class="border-2 border-dashed border-border rounded-xl p-12 flex flex-col items-center justify-center text-center text-muted-foreground">
-                <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="mb-3 opacity-60">
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/>
-                </svg>
-                <p class="text-sm font-medium">No hay estados de cuenta.</p>
-                <p class="text-xs mt-1">Sube un PDF, Excel o imagen</p>
-              </div>
-            } @else {
-              <div class="overflow-x-auto rounded-xl border border-border/60">
-                <table class="w-full text-sm">
-                  <thead>
-                    <tr class="border-b border-border bg-muted/30">
-                      <th class="px-3 py-2 text-left font-semibold text-muted-foreground">Archivo</th>
-                      <th class="px-3 py-2 text-left font-semibold text-muted-foreground">Tipo</th>
-                      <th class="px-3 py-2 text-right font-semibold text-muted-foreground">Tamano</th>
-                      <th class="px-3 py-2 text-left font-semibold text-muted-foreground">Fecha de subida</th>
-                      <th class="px-3 py-2 text-right font-semibold text-muted-foreground">Acciones</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    @for (f of estadoCuentaFiles(); track f.id) {
-                      <tr class="border-b border-border/40">
-                        <td class="px-3 py-2 text-foreground">{{ f.nombre }}</td>
-                        <td class="px-3 py-2 text-muted-foreground">{{ f.mime_type }}</td>
-                        <td class="px-3 py-2 text-right tabular-nums">{{ formatFileSize(f.tamano_bytes) }}</td>
-                        <td class="px-3 py-2 text-muted-foreground">{{ data.formatFechaCorta(f.fecha_subida) }}</td>
-                        <td class="px-3 py-2">
-                          <div class="flex items-center justify-end gap-2">
-                            <button
-                              type="button"
-                              (click)="downloadEstadoCuentaFile(f)"
-                              class="rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-muted"
-                            >
-                              Descargar
-                            </button>
-                            <button
-                              type="button"
-                              (click)="deleteEstadoCuentaFile(f.id)"
-                              class="rounded-lg border border-destructive/30 px-2.5 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10"
-                            >
-                              Eliminar
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    }
-                  </tbody>
-                </table>
-              </div>
-            }
-          </div>
         </div>
 
         @if (reportOpen()) {
@@ -360,7 +311,9 @@ import type { EstadoCuentaFile } from '../../core/models';
           <app-registrar-gestion-dialog
             [open]="true"
             [propiedad]="propiedad()!"
-            (openChange)="gestionOpen.set($event)"
+            [gestion]="gestionEditing()"
+            [gestionFormNonce]="gestionDialogNonce()"
+            (openChange)="onGestionDialogOpenChange($event)"
             (saved)="onGestionSaved($event)"
           />
         }
@@ -368,14 +321,19 @@ import type { EstadoCuentaFile } from '../../core/models';
           <app-agregar-registro-dialog
             [open]="true"
             [propiedad]="propiedad()!"
-            (openChange)="registroOpen.set($event)"
+            [historial]="registroEditing()"
+            [registroFormNonce]="registroDialogNonce()"
+            (openChange)="onRegistroDialogOpenChange($event)"
             (saved)="onRegistroSaved()"
           />
         }
         @if (deleteConfirmOpen()) {
           <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
             <div class="fixed inset-0 bg-black/50" (click)="cancelDeleteRegistro()"></div>
-            <div class="relative z-50 w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-lg">
+            <div
+              class="relative z-50 w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-lg"
+              (click)="$event.stopPropagation()"
+            >
               <div class="mb-4 flex items-start gap-3">
                 <div class="rounded-xl bg-destructive/10 p-2 text-destructive">
                   <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>
@@ -388,6 +346,12 @@ import type { EstadoCuentaFile } from '../../core/models';
                   <p class="mt-1 text-xs text-destructive/90">Esta accion no se puede deshacer.</p>
                 </div>
               </div>
+
+              @if (deleteRegistroError()) {
+                <div class="mb-4 rounded-xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+                  {{ deleteRegistroError() }}
+                </div>
+              }
 
               <div class="flex gap-3">
                 <button
@@ -408,6 +372,42 @@ import type { EstadoCuentaFile } from '../../core/models';
             </div>
           </div>
         }
+        @if (deleteGestionConfirmOpen() && gestionToDelete()) {
+          <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div class="fixed inset-0 bg-black/50" (click)="cancelDeleteGestion()"></div>
+            <div class="relative z-50 w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-lg">
+              <div class="mb-4 flex items-start gap-3">
+                <div class="rounded-xl bg-destructive/10 p-2 text-destructive">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>
+                </div>
+                <div>
+                  <h3 class="font-display text-lg font-bold text-foreground">Confirmar eliminacion</h3>
+                  <p class="mt-1 text-sm text-muted-foreground">
+                    Vas a eliminar esta gestión de cobro del {{ data.formatGestionFecha(gestionToDelete()!) }}.
+                  </p>
+                  <p class="mt-1 text-xs text-destructive/90">Esta accion no se puede deshacer.</p>
+                </div>
+              </div>
+
+              <div class="flex gap-3">
+                <button
+                  type="button"
+                  (click)="cancelDeleteGestion()"
+                  class="flex-1 rounded-xl border border-border px-4 py-2.5 text-sm font-medium hover:bg-muted"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  (click)="confirmDeleteGestion()"
+                  class="flex-1 rounded-xl bg-destructive px-4 py-2.5 text-sm font-medium text-destructive-foreground hover:opacity-90"
+                >
+                  Eliminar
+                </button>
+              </div>
+            </div>
+          </div>
+        }
       </div>
     }
   `,
@@ -417,8 +417,15 @@ export class PropiedadDetailPage {
   reportOpen = signal(false);
   reminderOpen = signal(false);
   gestionOpen = signal(false);
+  gestionEditing = signal<Gestion | null>(null);
+  gestionDialogNonce = signal(0);
+  gestionToDelete = signal<Gestion | null>(null);
+  deleteGestionConfirmOpen = signal(false);
   registroOpen = signal(false);
+  registroEditing = signal<HistorialPago | null>(null);
+  registroDialogNonce = signal(0);
   deleteConfirmOpen = signal(false);
+  deleteRegistroError = signal<string | null>(null);
   estadoCuentaLoading = signal(false);
   estadoCuentaError = signal<string | null>(null);
   estadoCuentaUploading = signal(false);
@@ -468,6 +475,11 @@ export class PropiedadDetailPage {
     return p ? this.data.getDeudaActualParaPropiedad(p) : 0;
   });
 
+  deudaHistorial(h: HistorialPago): number {
+    const p = this.propiedad();
+    return p ? this.data.getDeudaParaHistorialPago(p, h) : 0;
+  }
+
   chartData = computed((): ChartConfiguration<'bar'>['data'] => {
     const hist = this.historial();
     const periodos = [...new Set(hist.map((h) => h.periodo))].sort();
@@ -505,12 +517,30 @@ export class PropiedadDetailPage {
         this.data.loadCliente(propiedad.cliente_id),
         this.data.loadHistorialByPropiedad(id),
         this.data.loadGestionesByPropiedad(id),
-        this.loadEstadoCuentaFiles(id),
       ]);
     } catch {
       this.error.set('No se pudo cargar el detalle de la propiedad.');
     } finally {
       this.loading.set(false);
+    }
+  }
+
+  openNuevaGestion(): void {
+    this.gestionEditing.set(null);
+    this.gestionDialogNonce.update((n) => n + 1);
+    this.gestionOpen.set(true);
+  }
+
+  editarGestion(g: Gestion): void {
+    this.gestionEditing.set(g);
+    this.gestionDialogNonce.update((n) => n + 1);
+    this.gestionOpen.set(true);
+  }
+
+  onGestionDialogOpenChange(open: boolean): void {
+    this.gestionOpen.set(open);
+    if (!open) {
+      this.gestionEditing.set(null);
     }
   }
 
@@ -520,22 +550,52 @@ export class PropiedadDetailPage {
     descripcion: string;
   }): Promise<void> {
     const propiedadId = this.id();
-    console.log('[LegalDebug][PropiedadDetailPage] onGestionSaved()', { propiedadId, event });
+    const editing = this.gestionEditing();
+    this.error.set(null);
     try {
-      await this.data.addGestion(propiedadId, event);
-      console.log('[LegalDebug][PropiedadDetailPage] onGestionSaved() addGestion OK');
-    } catch (err) {
-      console.error('[LegalDebug][PropiedadDetailPage] onGestionSaved() addGestion FAIL', err);
+      if (editing) {
+        await this.data.updateGestion(propiedadId, editing.id, event);
+      } else {
+        await this.data.addGestion(propiedadId, event);
+      }
+      this.onGestionDialogOpenChange(false);
+    } catch {
+      this.error.set(
+        editing
+          ? 'No se pudo editar la gestión. Verifica los datos e intenta nuevamente.'
+          : 'No se pudo registrar la gestión. Verifica los datos e intenta nuevamente.'
+      );
+    }
+  }
+
+  openDeleteGestionConfirm(g: Gestion): void {
+    this.gestionToDelete.set(g);
+    this.deleteGestionConfirmOpen.set(true);
+  }
+
+  cancelDeleteGestion(): void {
+    this.deleteGestionConfirmOpen.set(false);
+    this.gestionToDelete.set(null);
+  }
+
+  async confirmDeleteGestion(): Promise<void> {
+    const g = this.gestionToDelete();
+    const propiedadId = this.id();
+    if (!g || !propiedadId) return;
+    this.error.set(null);
+    try {
+      await this.data.deleteGestion(propiedadId, g.id);
+      this.cancelDeleteGestion();
+    } catch {
+      this.error.set('No se pudo eliminar la gestión. Intenta nuevamente.');
     }
   }
 
   async onRegistroSaved(): Promise<void> {
     const id = this.id();
-    console.log('[LegalDebug][PropiedadDetailPage] onRegistroSaved() refrescando lista', { id });
     await this.data.loadHistorialByPropiedad(id);
     await this.data.loadPropiedad(id);
     this.refreshTrigger.update((v) => v + 1);
-    console.log('[LegalDebug][PropiedadDetailPage] onRegistroSaved() hecho');
   }
 
   triggerEstadoCuentaFilePicker(): void {
@@ -581,7 +641,7 @@ export class PropiedadDetailPage {
         [
           'Archivo en modo mock local.',
           `Nombre: ${file.nombre}`,
-          `Subido: ${new Date(file.fecha_subida).toLocaleString('es-CO')}`,
+          `Subido: ${this.data.formatFechaHora(file.fecha_subida)}`,
           'Nota: en esta fase no se persiste el binario real, solo metadata.',
         ].join('\n'),
       ],
@@ -595,27 +655,49 @@ export class PropiedadDetailPage {
     URL.revokeObjectURL(url);
   }
 
+  openNuevoRegistro(): void {
+    this.registroEditing.set(null);
+    this.registroDialogNonce.update((n) => n + 1);
+    this.registroOpen.set(true);
+  }
+
+  editarRegistro(h: HistorialPago): void {
+    this.registroEditing.set(h);
+    this.registroDialogNonce.update((n) => n + 1);
+    this.registroOpen.set(true);
+  }
+
+  onRegistroDialogOpenChange(open: boolean): void {
+    this.registroOpen.set(open);
+    if (!open) {
+      this.registroEditing.set(null);
+    }
+  }
+
   openDeleteRegistroConfirm(historialId: string): void {
     this.historialToDeleteId.set(historialId);
+    this.deleteRegistroError.set(null);
     this.deleteConfirmOpen.set(true);
   }
 
   cancelDeleteRegistro(): void {
     this.deleteConfirmOpen.set(false);
     this.historialToDeleteId.set(null);
+    this.deleteRegistroError.set(null);
   }
 
   async confirmDeleteRegistro(): Promise<void> {
     const historialId = this.historialToDeleteId();
     const propiedadId = this.id();
     if (!historialId || !propiedadId) return;
-    this.error.set(null);
+    this.deleteRegistroError.set(null);
     try {
       await this.data.deleteHistorialPago(propiedadId, historialId);
+      await this.data.loadPropiedad(propiedadId);
       this.refreshTrigger.update((v) => v + 1);
       this.cancelDeleteRegistro();
     } catch {
-      this.error.set('No se pudo eliminar el registro. Intenta nuevamente.');
+      this.deleteRegistroError.set('No se pudo eliminar el registro. Intenta nuevamente.');
     }
   }
 

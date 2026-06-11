@@ -1,6 +1,9 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { Injectable, computed, inject, signal } from '@angular/core';
+import { Router } from '@angular/router';
 import { HttpService } from '../http/http.service';
+import { isAccessTokenValid } from '../utils/jwt.utils';
+import { SessionPolicyService } from './session-policy.service';
 import { TokenStorageService } from './token-storage.service';
 
 export type UserRole = 'admin' | 'cliente';
@@ -36,10 +39,19 @@ type BackendAuthUser = {
   clienteId?: string | null;
 };
 
+type AuthTokensResponse = {
+  access_token: string;
+  refresh_token: string;
+  session_expires_at?: string;
+  idle_timeout_seconds?: number;
+};
+
 @Injectable({ providedIn: 'root' })
 export class AuthService {
   private readonly http = inject(HttpService);
   private readonly tokenStorage = inject(TokenStorageService);
+  private readonly sessionPolicy = inject(SessionPolicyService);
+  private readonly router = inject(Router);
   private refreshInFlight: Promise<boolean> | null = null;
   private initInFlight: Promise<void> | null = null;
 
@@ -54,7 +66,13 @@ export class AuthService {
   }
 
   isLoggedIn(): boolean {
-    return !!this.tokenStorage.getAccessToken() && this.currentUser() !== null;
+    const accessToken = this.tokenStorage.getAccessToken();
+    return (
+      !!accessToken &&
+      this.currentUser() !== null &&
+      this.sessionPolicy.isLocallyValid() &&
+      isAccessTokenValid(accessToken)
+    );
   }
 
   isAdmin(): boolean {
@@ -78,30 +96,67 @@ export class AuthService {
   private async bootstrapSession(): Promise<void> {
     const accessToken = this.tokenStorage.getAccessToken();
     if (!accessToken) {
+      this.sessionPolicy.clear();
       this.currentUser.set(null);
       this.isReady.set(true);
       return;
     }
-    const ok = await this.fetchMe();
-    if (!ok) {
-      await this.refreshSession();
+
+    if (!this.sessionPolicy.isLocallyValid()) {
+      await this.logout();
+      this.isReady.set(true);
+      return;
     }
+
+    if (!isAccessTokenValid(accessToken)) {
+      const refreshed = await this.refreshSession();
+      if (!refreshed) {
+        this.isReady.set(true);
+        return;
+      }
+    } else {
+      const ok = await this.fetchMe();
+      if (!ok) {
+        await this.refreshSession();
+      }
+    }
+
+    if (this.currentUser()) {
+      this.sessionPolicy.startWatching();
+    } else {
+      this.sessionPolicy.clear();
+    }
+
     this.isReady.set(true);
   }
 
   async ensureSession(): Promise<boolean> {
     await this.initializeSession();
-    return this.currentUser() !== null;
+
+    const accessToken = this.tokenStorage.getAccessToken();
+    if (!accessToken || this.currentUser() === null) {
+      return false;
+    }
+
+    if (!this.sessionPolicy.isLocallyValid()) {
+      await this.logout();
+      return false;
+    }
+
+    if (!isAccessTokenValid(accessToken)) {
+      return this.refreshSession();
+    }
+
+    return true;
   }
 
   async login(email: string, password: string): Promise<{ ok: true } | { ok: false; error: string }> {
     try {
-      const res = await this.http.postRaw<{
-        access_token: string;
-        refresh_token: string;
-        user: BackendAuthUser;
-      }>('/auth/login', { email: email.trim(), password });
-      this.tokenStorage.setTokens(res.access_token, res.refresh_token);
+      const res = await this.http.postRaw<AuthTokensResponse & { user: BackendAuthUser }>('/auth/login', {
+        email: email.trim(),
+        password,
+      });
+      this.persistAuthResponse(res);
       this.currentUser.set(this.normalizeSessionUser(res.user));
       this.isReady.set(true);
       return { ok: true };
@@ -111,6 +166,7 @@ export class AuthService {
   }
 
   async logout(): Promise<void> {
+    this.sessionPolicy.clear();
     const refreshToken = this.tokenStorage.getRefreshToken();
     if (refreshToken) {
       try {
@@ -122,6 +178,11 @@ export class AuthService {
     this.tokenStorage.clear();
     this.currentUser.set(null);
     this.isReady.set(true);
+  }
+
+  async logoutAndRedirect(): Promise<void> {
+    await this.logout();
+    void this.router.navigate(['/']);
   }
 
   async registerCliente(
@@ -192,21 +253,41 @@ export class AuthService {
   }
 
   private async refreshSessionInternal(): Promise<boolean> {
+    if (!this.sessionPolicy.isLocallyValid()) {
+      await this.logout();
+      return false;
+    }
+
     const refreshToken = this.tokenStorage.getRefreshToken();
     if (!refreshToken) {
       await this.logout();
       return false;
     }
+
     try {
-      const tokenRes = await this.http.postRaw<{ access_token: string; refresh_token: string }>(
-        '/auth/refresh',
-        { refresh_token: refreshToken }
-      );
-      this.tokenStorage.setTokens(tokenRes.access_token, tokenRes.refresh_token);
-      return await this.fetchMe();
+      const tokenRes = await this.http.postRaw<AuthTokensResponse>('/auth/refresh', {
+        refresh_token: refreshToken,
+      });
+      this.persistAuthResponse(tokenRes);
+      const ok = await this.fetchMe();
+      if (!ok) {
+        await this.logout();
+        return false;
+      }
+      return true;
     } catch {
       await this.logout();
       return false;
+    }
+  }
+
+  private persistAuthResponse(res: AuthTokensResponse): void {
+    this.tokenStorage.setTokens(res.access_token, res.refresh_token);
+    if (res.session_expires_at && res.idle_timeout_seconds != null) {
+      this.sessionPolicy.applyFromAuthResponse({
+        session_expires_at: res.session_expires_at,
+        idle_timeout_seconds: res.idle_timeout_seconds,
+      });
     }
   }
 

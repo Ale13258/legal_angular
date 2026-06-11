@@ -33,6 +33,12 @@ export interface Propiedad {
   saldo_inicial?: number | null;
   monto_a_la_fecha: number;
   created_at: string;
+  /** Persona a quien se cobra esta unidad. */
+  cobro_nombre: string;
+  cobro_tipo_persona: TipoPersona;
+  cobro_documento: string;
+  /** Correo al que se envían notificaciones de cobro de esta propiedad. */
+  cobro_email: string;
   /**
    * Días de mora agregados por unidad. El backend la calcula al persistir historial:
    * máximo de `dias_en_mora` por movimiento (misma idea que el fallback en el cliente Angular).
@@ -69,9 +75,12 @@ export interface HistorialPago {
   dias_en_mora?: number | null;
 }
 
+import type { EtapaProceso } from '../proceso-etapas';
+
+export type { EtapaProceso };
+
 export type TipoCuenta = 'juridica' | 'extrajudicial' | 'acuerdo_de_pago';
 export type EstadoCuenta = 'activa' | 'cerrada' | 'en_proceso';
-export type EtapaProceso = 'inicial' | 'notificacion' | 'conciliacion' | 'demanda' | 'ejecucion';
 
 export interface Cuenta {
   id: string;
@@ -106,4 +115,19 @@ export interface EstadoCuentaFile {
 /** Metadata persistible del archivo en almacenamiento local/API. */
 export interface EstadoCuentaFileMeta extends Omit<EstadoCuentaFile, 'propiedad_id'> {
   propiedad_id: string;
+}
+
+export type PaymentReminderEmailStatus = 'queued' | 'sent' | 'failed';
+
+/** Registro devuelto por POST /payment-reminders/email/send */
+export interface PaymentReminderEmailRecord {
+  id: string;
+  propiedad_id: string;
+  cliente_email: string;
+  subject: string;
+  status: PaymentReminderEmailStatus | string;
+  provider_id: string | null;
+  error_message: string | null;
+  sent_at: string | null;
+  created_at: string;
 }

@@ -83,18 +83,30 @@ import type { ChartConfiguration } from 'chart.js';
             class="interactive-card bg-card rounded-2xl shadow-card p-4 sm:p-6 border border-border/50 min-w-0"
           >
             <h3 class="font-display font-bold text-foreground mb-4">Distribución por Estado</h3>
-            <div class="h-[250px]">
-              <canvas baseChart [data]="pieEstadoData()" [options]="pieOptions" type="pie"></canvas>
-            </div>
+            @if (hasEstadoData()) {
+              <div class="h-[250px]">
+                <canvas baseChart [data]="pieEstadoData()" [options]="pieOptions" type="pie"></canvas>
+              </div>
+            } @else {
+              <div class="h-[250px] rounded-xl bg-muted/30 flex items-center justify-center text-sm text-muted-foreground text-center px-6">
+                No hay estados suficientes para graficar.
+              </div>
+            }
           </div>
           <div
             [@fadeInUp]="{ value: '', params: { delay: 100, duration: 400, offset: 10, ease: 'ease-out' } }"
             class="interactive-card bg-card rounded-2xl shadow-card p-4 sm:p-6 border border-border/50 min-w-0"
           >
             <h3 class="font-display font-bold text-foreground mb-4">Distribución por Tipo</h3>
-            <div class="h-[250px]">
-              <canvas baseChart [data]="pieTipoData()" [options]="pieOptions" type="pie"></canvas>
-            </div>
+            @if (hasTipoData()) {
+              <div class="h-[250px]">
+                <canvas baseChart [data]="pieTipoData()" [options]="pieOptions" type="pie"></canvas>
+              </div>
+            } @else {
+              <div class="h-[250px] rounded-xl bg-muted/30 flex items-center justify-center text-sm text-muted-foreground text-center px-6">
+                No hay propiedades suficientes para graficar.
+              </div>
+            }
           </div>
         </div>
 
@@ -136,13 +148,37 @@ export class GraficosPage {
   clientesCount = computed(() => this.data.mockClientes.length);
   propiedadesCount = computed(() => this.data.mockPropiedades.length);
 
-  estadoCounts = computed(() => this.data.getDistribucionEstados());
+  estadoCounts = computed(() => {
+    const cuentas = this.data.mockCuentas;
+    if (cuentas.length > 0) {
+      return cuentas.reduce<Record<string, number>>((acc, c) => {
+        acc[this.data.estadoCuentaLabels[c.estado] ?? c.estado] =
+          (acc[this.data.estadoCuentaLabels[c.estado] ?? c.estado] ?? 0) + 1;
+        return acc;
+      }, {});
+    }
+
+    return this.data.mockPropiedades.reduce<Record<string, number>>((acc, p) => {
+      const label = this.data.getDeudaActualParaPropiedad(p) > 0 ? 'Con deuda' : 'Saldada';
+      acc[label] = (acc[label] ?? 0) + 1;
+      return acc;
+    }, {});
+  });
+
+  tipoCounts = computed(() =>
+    this.data.mockPropiedades.reduce<Record<string, number>>((acc, p) => {
+      const label = this.data.tipoPropiedadLabels[p.tipo_propiedad] ?? p.tipo_propiedad;
+      acc[label] = (acc[label] ?? 0) + 1;
+      return acc;
+    }, {})
+  );
+
+  hasEstadoData = computed(() => Object.values(this.estadoCounts()).some((value) => value > 0));
+  hasTipoData = computed(() => Object.values(this.tipoCounts()).some((value) => value > 0));
 
   pieEstadoData = computed((): ChartConfiguration<'pie'>['data'] => {
     const counts = this.estadoCounts();
-    const labels = Object.keys(counts).map(
-      (k) => this.data.estadoCuentaLabels[k] ?? k
-    );
+    const labels = Object.keys(counts);
     const values = Object.values(counts);
     return {
       labels,
@@ -156,13 +192,8 @@ export class GraficosPage {
   });
 
   pieTipoData = computed((): ChartConfiguration<'pie'>['data'] => {
-    const counts = this.data.mockCuentas.reduce<Record<string, number>>((acc, c) => {
-      acc[c.tipo] = (acc[c.tipo] ?? 0) + 1;
-      return acc;
-    }, {});
-    const labels = Object.keys(counts).map(
-      (k) => this.data.tipoCuentaLabels[k] ?? k
-    );
+    const counts = this.tipoCounts();
+    const labels = Object.keys(counts);
     const values = Object.values(counts);
     return {
       labels,
