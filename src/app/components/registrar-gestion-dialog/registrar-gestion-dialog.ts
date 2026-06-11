@@ -1,5 +1,5 @@
-import { Component, input, output, signal } from '@angular/core';
-import type { Propiedad } from '../../core/models';
+import { Component, effect, input, output, signal } from '@angular/core';
+import type { Gestion, Propiedad } from '../../core/models';
 
 @Component({
   selector: 'app-registrar-gestion-dialog',
@@ -8,9 +8,10 @@ import type { Propiedad } from '../../core/models';
     <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div class="fixed inset-0 bg-black/50" (click)="openChange.emit(false)"></div>
       <div class="relative z-50 bg-card rounded-2xl shadow-lg border border-border w-full max-w-md">
-        <!-- Header -->
         <div class="flex items-center justify-between px-6 py-4 border-b border-border">
-          <h2 class="font-display text-lg font-bold text-foreground">Registrar Gestión de Cobro</h2>
+          <h2 class="font-display text-lg font-bold text-foreground">
+            {{ gestion() ? 'Editar Gestión de Cobro' : 'Registrar Gestión de Cobro' }}
+          </h2>
           <button
             type="button"
             (click)="openChange.emit(false)"
@@ -21,9 +22,7 @@ import type { Propiedad } from '../../core/models';
           </button>
         </div>
 
-        <!-- (submit) + preventDefault: sin FormsModule, (ngSubmit) no aplica y el submit nativo recarga la SPA -->
         <form (submit)="onFormSubmit($event)" class="p-6 space-y-5">
-          <!-- Fecha -->
           <div>
             <label class="block text-sm font-medium text-foreground mb-1.5">Fecha</label>
             <div class="relative">
@@ -39,7 +38,6 @@ import type { Propiedad } from '../../core/models';
             </div>
           </div>
 
-          <!-- Estado -->
           <div>
             <label class="block text-sm font-medium text-foreground mb-1.5">Estado</label>
             <select
@@ -53,7 +51,6 @@ import type { Propiedad } from '../../core/models';
             </select>
           </div>
 
-          <!-- Descripción de la gestión -->
           <div>
             <label class="block text-sm font-medium text-foreground mb-1.5">Descripción de la gestión</label>
             <textarea
@@ -65,7 +62,6 @@ import type { Propiedad } from '../../core/models';
             ></textarea>
           </div>
 
-          <!-- Botones -->
           <div class="flex gap-3 pt-2">
             <button
               type="button"
@@ -79,7 +75,7 @@ import type { Propiedad } from '../../core/models';
               class="flex-1 inline-flex items-center justify-center gap-2 rounded-xl bg-primary text-primary-foreground px-4 py-2.5 text-sm font-medium hover:opacity-90"
             >
               <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-              Guardar Gestión
+              {{ gestion() ? 'Guardar cambios' : 'Guardar Gestión' }}
             </button>
           </div>
         </form>
@@ -90,6 +86,9 @@ import type { Propiedad } from '../../core/models';
 export class RegistrarGestionDialog {
   open = input<boolean>(true);
   propiedad = input.required<Propiedad>();
+  gestion = input<Gestion | null>(null);
+  /** Incrementado por el padre en cada apertura para hidratar el formulario. */
+  gestionFormNonce = input(0);
   openChange = output<boolean>();
   saved = output<{ fecha: string; estado: string; descripcion: string }>();
 
@@ -103,9 +102,42 @@ export class RegistrarGestionDialog {
     { value: 'pendiente', label: 'PENDIENTE' },
   ];
 
+  private lastSyncedFormKey: string | null = null;
+
+  constructor() {
+    effect(() => {
+      const nonce = this.gestionFormNonce();
+      const current = this.gestion();
+      const key = `${nonce}:${current?.id ?? '__nueva__'}`;
+      if (this.lastSyncedFormKey === key) return;
+      this.lastSyncedFormKey = key;
+      if (current) {
+        this.applyGestionToForm(current);
+      } else {
+        this.resetForm();
+      }
+    });
+  }
+
+  private applyGestionToForm(g: Gestion): void {
+    this.fecha.set(g.fecha?.trim().slice(0, 10) || this.fechaHoy());
+    this.estado.set(this.coerceEstado(g.estado));
+    this.descripcion.set(g.descripcion ?? '');
+  }
+
+  private coerceEstado(v: unknown): string {
+    const s = String(v ?? '').trim();
+    return this.estadoOpciones.some((o) => o.value === s) ? s : 'pendiente';
+  }
+
   private fechaHoy(): string {
-    const d = new Date();
-    return d.toISOString().slice(0, 10);
+    return new Date().toISOString().slice(0, 10);
+  }
+
+  private resetForm(): void {
+    this.fecha.set(this.fechaHoy());
+    this.estado.set('pendiente');
+    this.descripcion.set('');
   }
 
   onFormSubmit(event: Event): void {
@@ -114,19 +146,12 @@ export class RegistrarGestionDialog {
   }
 
   guardar(): void {
-    const f = this.fecha();
-    const e = this.estado();
     const d = this.descripcion().trim();
-    console.log('[LegalDebug][RegistrarGestionDialog] guardar() emit saved', {
-      propiedadId: this.propiedad().id,
-      fecha: f,
-      estado: e,
+    if (!d) return;
+    this.saved.emit({
+      fecha: this.fecha(),
+      estado: this.estado(),
       descripcion: d,
     });
-    this.saved.emit({ fecha: f, estado: e, descripcion: d });
-    this.descripcion.set('');
-    this.estado.set('pendiente');
-    this.fecha.set(this.fechaHoy());
-    this.openChange.emit(false);
   }
 }

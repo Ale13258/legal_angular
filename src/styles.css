@@ -141,6 +141,13 @@ body {
   min-width: 600px;
 }
 
+/* Tooltips en celdas de deudor: no recortar al hacer hover */
+.table-wrap table td.deudor-col,
+.table-wrap table th.deudor-col {
+  overflow: visible;
+  position: relative;
+}
+
 .nav-pill {
   transition:
     background-color var(--motion-duration-fast) var(--motion-ease),

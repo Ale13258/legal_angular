@@ -25,7 +25,6 @@ export const authInterceptor: HttpInterceptorFn = (
   next: HttpHandlerFn
 ): Observable<HttpEvent<unknown>> => {
   if (req.context.get(SKIP_AUTH)) {
-    console.log('[LegalDebug][Http] SKIP_AUTH', req.method, req.url);
     return next(req);
   }
 
@@ -35,40 +34,25 @@ export const authInterceptor: HttpInterceptorFn = (
   const accessToken = tokenStorage.getAccessToken();
   const requestWithAuth = withAuthHeader(req, accessToken);
 
-  console.log('[LegalDebug][Http] outgoing', {
-    method: req.method,
-    url: req.url,
-    hasAuthorizationHeader: !!accessToken,
-  });
-
   return next(requestWithAuth).pipe(
     catchError((error: unknown) => {
       if (!(error instanceof HttpErrorResponse) || error.status !== 401 || req.url.includes('/auth/')) {
-        if (error instanceof HttpErrorResponse) {
-          console.error('[LegalDebug][Http] error response', {
-            method: req.method,
-            url: req.url,
-            status: error.status,
-            statusText: error.statusText,
-            body: error.error,
-          });
-        } else {
-          console.error('[LegalDebug][Http] error (non-HttpErrorResponse)', error);
-        }
         return throwError(() => error);
       }
-
-      console.warn('[LegalDebug][Http] 401 -> intentando refresh', req.method, req.url);
 
       return from(auth.refreshSession()).pipe(
         switchMap((refreshed) => {
           if (!refreshed) {
+            void auth.logoutAndRedirect();
             return throwError(() => error);
           }
           const retried = withAuthHeader(req, tokenStorage.getAccessToken());
           return next(retried);
         }),
-        catchError((refreshError: unknown) => throwError(() => refreshError))
+        catchError((refreshError: unknown) => {
+          void auth.logoutAndRedirect();
+          return throwError(() => refreshError);
+        })
       );
     })
   );

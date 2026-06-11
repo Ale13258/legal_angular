@@ -1,6 +1,7 @@
 import { HttpParams } from '@angular/common/http';
 import { Injectable, inject, signal } from '@angular/core';
 import { etiquetaCortaParaDiasMora, etiquetaParaDiasMora } from '../mora-etapas';
+import { ETAPA_PROCESO_LABELS, etiquetaEtapaProceso } from '../proceso-etapas';
 import { HttpService } from '../http/http.service';
 import type {
   Cliente,
@@ -13,6 +14,7 @@ import type {
   EtapaProceso,
   Gestion,
   HistorialPago,
+  PaymentReminderEmailRecord,
   Propiedad,
   TipoCuenta,
 } from '../models';
@@ -34,16 +36,24 @@ export type CreatePropiedadPayload = {
   direccion: string;
   notas: string;
   saldo_inicial: number;
+  cobro_nombre: string;
+  cobro_tipo_persona: Propiedad['cobro_tipo_persona'];
+  cobro_documento: string;
+  cobro_email: string;
   /** ISO fecha `YYYY-MM-DD`; opcional según contrato del API */
   fecha_inicio_cobro?: string | null;
 };
 
 export type UpdatePropiedadPayload = {
-  tipo_propiedad: Propiedad['tipo_propiedad'];
-  identificador: string;
-  direccion: string;
-  notas: string;
-  saldo_inicial: number;
+  tipo_propiedad?: Propiedad['tipo_propiedad'];
+  identificador?: string;
+  direccion?: string;
+  notas?: string;
+  saldo_inicial?: number;
+  cobro_nombre?: string;
+  cobro_tipo_persona?: Propiedad['cobro_tipo_persona'];
+  cobro_documento?: string;
+  cobro_email?: string;
   fecha_inicio_cobro?: string | null;
 };
 
@@ -66,6 +76,23 @@ export type UpdateCuentaPayload = {
   estado: EstadoCuenta;
   etapa_proceso: EtapaProceso;
   propiedad_id?: string;
+};
+
+export type UpdateClientePayload = Pick<
+  Cliente,
+  'nombre' | 'telefono' | 'email' | 'direccion' | 'observaciones'
+>;
+
+export type UpdateGestionPayload = {
+  fecha: string;
+  estado: string;
+  descripcion: string;
+};
+
+export type PaymentReminderEmailAttachmentPayload = {
+  filename: string;
+  content_base64: string;
+  mime_type?: string;
 };
 
 @Injectable({ providedIn: 'root' })
@@ -108,12 +135,12 @@ export class DataService {
     en_proceso: 'EN PROCESO',
   };
   readonly etapaProcesoLabels: Record<string, string> = {
-    inicial: 'INICIAL',
-    notificacion: 'NOTIFICACIÓN',
-    conciliacion: 'CONCILIACIÓN',
-    demanda: 'DEMANDA',
-    ejecucion: 'EJECUCIÓN',
+    ...ETAPA_PROCESO_LABELS,
   };
+
+  formatEtapaProceso(etapa: string | null | undefined): string {
+    return etiquetaEtapaProceso(etapa);
+  }
   readonly estadoGestionLabels: Record<string, string> = {
     recibido: 'RECIBIDO',
     enviado: 'ENVIADO',
@@ -153,24 +180,68 @@ export class DataService {
 
   /** Total cobrado de la unidad = valor inicial registrado al crearla. */
   getTotalCobradoParaPropiedad(p: Propiedad): number {
+    const lockedInicial = this.readSaldoInicialFijo(p.id);
+    if (lockedInicial != null) return lockedInicial;
+
     const inicial = Number(p.saldo_inicial);
-    if (Number.isFinite(inicial)) return Math.max(0, inicial);
-    const deudaActual = Number.isFinite(Number(p.monto_a_la_fecha)) ? Math.max(0, Number(p.monto_a_la_fecha)) : 0;
-    const totalPagado = this.getHistorialByPropiedad(p.id).reduce(
-      (sum, h) => sum + (Number.isFinite(Number(h.valor_pagado)) ? Number(h.valor_pagado) : 0),
+    const montoBackend = Number.isFinite(Number(p.monto_a_la_fecha)) ? Math.max(0, Number(p.monto_a_la_fecha)) : 0;
+    const historial = this.getHistorialByPropiedad(p.id);
+    const totalPagado = historial.reduce(
+      (sum, h) => sum + this.toMoneyNumber(h.valor_pagado),
       0
     );
-    // Fallback para propiedades legacy sin `saldo_inicial`: inicial ≈ deuda actual + pagos acumulados.
-    return Math.max(0, deudaActual + totalPagado);
+
+    if (p.saldo_inicial != null && Number.isFinite(inicial)) {
+      const safeInicial = Math.max(0, inicial);
+      // Reparacion para datos guardados con el bug anterior: el inicial quedo igual al monto inflado.
+      if (totalPagado > 0 && montoBackend > 0 && safeInicial - montoBackend === totalPagado) {
+        this.writeSaldoInicialFijo(p.id, montoBackend);
+        return montoBackend;
+      }
+      const montoInfladoEnHistorial = historial.some((h) => this.toMoneyNumber(h.monto_a_la_fecha) === montoBackend);
+      if (totalPagado > 0 && montoBackend > 0 && safeInicial === montoBackend && montoInfladoEnHistorial) {
+        const repairedInicial = Math.max(0, montoBackend - totalPagado);
+        this.writeSaldoInicialFijo(p.id, repairedInicial);
+        return repairedInicial;
+      }
+      this.writeSaldoInicialFijo(p.id, safeInicial);
+      return safeInicial;
+    }
+
+    // Fallback legacy: algunos endpoints devuelven un monto que incluye pagos ya aplicados.
+    const fallbackInicial = Math.max(0, montoBackend - totalPagado);
+    this.writeSaldoInicialFijo(p.id, fallbackInicial);
+    return fallbackInicial;
+  }
+
+  /** Suma numérica de todos los pagos registrados en el historial de la unidad. */
+  getTotalPagadoParaPropiedad(p: Propiedad): number {
+    return this.getHistorialByPropiedad(p.id).reduce(
+      (sum, h) => sum + this.toMoneyNumber(h.valor_pagado),
+      0,
+    );
   }
 
   /** Deuda actual calculada: saldo inicial - pagos acumulados (nunca negativa). */
   getDeudaActualParaPropiedad(p: Propiedad): number {
-    const totalPagado = this.getHistorialByPropiedad(p.id).reduce(
-      (sum, h) => sum + (Number.isFinite(Number(h.valor_pagado)) ? Number(h.valor_pagado) : 0),
-      0
-    );
-    return Math.max(0, this.getTotalCobradoParaPropiedad(p) - totalPagado);
+    return this.getDeudaDesdePagosAcumulados(p, this.getTotalPagadoParaPropiedad(p));
+  }
+
+  /**
+   * Deuda para una fila del historial usando la misma base de la card:
+   * saldo inicial de la propiedad - pagos acumulados hasta ese movimiento.
+   */
+  getDeudaParaHistorialPago(p: Propiedad, row: HistorialPago): number {
+    const historial = this.getHistorialByPropiedad(p.id);
+    const ordered = historial.slice().sort((a, b) => this.compareHistorialParaSaldo(a, b));
+    let totalPagado = 0;
+
+    for (const h of ordered) {
+      totalPagado += this.toMoneyNumber(h.valor_pagado);
+      if (h.id === row.id) return this.getDeudaDesdePagosAcumulados(p, totalPagado);
+    }
+
+    return this.getDeudaDesdePagosAcumulados(p, this.toMoneyNumber(row.valor_pagado));
   }
 
   /** Fecha ISO `YYYY-MM-DD` o vacío → texto corto es-CO o em dash. */
@@ -184,6 +255,44 @@ export class DataService {
       month: 'short',
       year: 'numeric',
     });
+  }
+
+  /** Día y hora simple en es-CO. Si la fecha es solo `YYYY-MM-DD`, usa `fallbackIso` para la hora. */
+  formatFechaHora(isoDate: string | null | undefined, fallbackIso?: string | null | undefined): string {
+    if (isoDate == null || String(isoDate).trim() === '') return '—';
+    const raw = String(isoDate).trim();
+    const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(raw.slice(0, 10));
+    const hasExplicitTime = raw.includes('T') && !/T00:00:00(\.000)?Z?$/.test(raw);
+    const timeSource =
+      dateOnly && !hasExplicitTime && fallbackIso?.trim() ? fallbackIso.trim() : raw;
+
+    const parsed = Date.parse(timeSource);
+    if (!Number.isFinite(parsed)) return '—';
+
+    return new Date(parsed).toLocaleString('es-CO', {
+      day: 'numeric',
+      month: 'numeric',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    });
+  }
+
+  /** Fecha de pago del historial con día y hora. */
+  formatFechaPago(h: Pick<HistorialPago, 'fecha_pago' | 'created_at'>): string {
+    return this.formatFechaHora(h.fecha_pago, h.created_at);
+  }
+
+  /** Fecha y hora legibles para gestiones de cobro. */
+  formatGestionFecha(g: Gestion): string {
+    return this.formatFechaHora(g.fecha, g.created_at);
+  }
+
+  /** Normaliza documento para comparación (quita puntos, guiones y espacios). */
+  normalizeDocumentoKey(documento: string): string {
+    return String(documento ?? '')
+      .trim()
+      .replace(/\D/g, '');
   }
 
   /** Días en mora para UI. */
@@ -217,6 +326,31 @@ export class DataService {
       this.formatEtapaCobranza(r.edad_mora_dias),
       `Inicio cobro (sistema): ${this.formatFechaCorta(r.fecha_inicio_cobro)}`,
       `Fin cobro: ${this.formatFechaCorta(r.fecha_fin_cobro)}`,
+    ].join('\n');
+  }
+
+  /** Nombre del deudor (usuario a cobrar) para celdas de tabla. */
+  formatDeudorCorto(p: Pick<Propiedad, 'cobro_nombre'>): string {
+    const nombre = p.cobro_nombre?.trim();
+    return nombre || '—';
+  }
+
+  /** Tooltip con todos los datos del deudor de la propiedad. */
+  formatDeudorTooltip(
+    p: Pick<Propiedad, 'cobro_nombre' | 'cobro_tipo_persona' | 'cobro_documento' | 'cobro_email'>,
+  ): string {
+    const nombre = p.cobro_nombre?.trim();
+    const documento = p.cobro_documento?.trim();
+    const email = p.cobro_email?.trim();
+    const docLabel = p.cobro_tipo_persona === 'natural' ? 'CC' : 'NIT';
+    const tipo =
+      p.cobro_tipo_persona === 'natural' ? 'Persona natural' : 'Persona jurídica';
+
+    return [
+      `Deudor: ${nombre || '—'}`,
+      `Tipo: ${tipo}`,
+      `${docLabel}: ${documento || '—'}`,
+      `Correo: ${email || '—'}`,
     ].join('\n');
   }
 
@@ -337,6 +471,17 @@ export class DataService {
     return this.clientesSignal().find((c) => c.id === id);
   }
 
+  findClienteDuplicado(payload: { documento: string; email?: string }): Cliente | undefined {
+    const docKey = this.normalizeDocumentoKey(payload.documento);
+    const emailKey = payload.email?.trim().toLowerCase() ?? '';
+
+    return this.clientesSignal().find((c) => {
+      if (docKey && this.normalizeDocumentoKey(c.documento) === docKey) return true;
+      if (emailKey && c.email?.trim().toLowerCase() === emailKey) return true;
+      return false;
+    });
+  }
+
   getHistorialByClienteId(clienteId: string): HistorialPago[] {
     const propIds = new Set(
       this.propiedadesSignal()
@@ -361,21 +506,12 @@ export class DataService {
   }
 
   async addHistorialPago(propiedadId: string, payload: AddHistorialPayload): Promise<HistorialPago> {
-    const path = `/propiedades/${propiedadId}/historial`;
-    console.log('[LegalDebug][DataService] addHistorialPago -> POST', { path, propiedadId, payload });
     const hadHistorialBefore = this.getHistorialByPropiedad(propiedadId).length > 0;
-    try {
-      const record = await this.http.post<HistorialPago>(path, payload);
-      console.log('[LegalDebug][DataService] addHistorialPago POST OK', record);
-      await this.ensureFechaInicioCobroOnPrimerRegistro(propiedadId, payload, hadHistorialBefore);
-      await this.loadHistorialByPropiedad(propiedadId);
-      await this.loadPropiedad(propiedadId);
-      console.log('[LegalDebug][DataService] addHistorialPago reloads OK');
-      return record;
-    } catch (err) {
-      console.error('[LegalDebug][DataService] addHistorialPago FAIL', err);
-      throw err;
-    }
+    const record = await this.http.post<HistorialPago>(`/propiedades/${propiedadId}/historial`, payload);
+    await this.ensureFechaInicioCobroOnPrimerRegistro(propiedadId, payload, hadHistorialBefore);
+    await this.loadHistorialByPropiedad(propiedadId);
+    await this.loadPropiedad(propiedadId);
+    return record;
   }
 
   private async ensureFechaInicioCobroOnPrimerRegistro(
@@ -408,15 +544,15 @@ export class DataService {
           direccion: propiedad.direccion,
           notas: propiedad.notas ?? '',
           saldo_inicial: Number(propiedad.saldo_inicial ?? propiedad.monto_a_la_fecha ?? 0),
+          cobro_nombre: propiedad.cobro_nombre,
+          cobro_tipo_persona: propiedad.cobro_tipo_persona,
+          cobro_documento: propiedad.cobro_documento,
+          cobro_email: propiedad.cobro_email,
           fecha_inicio_cobro: fechaInicio,
         };
         await this.updatePropiedad(propiedadId, fallbackPayload);
-      } catch (fallbackErr) {
+      } catch {
         // No bloquea guardar historial si el backend no admite patch de inicio de cobro.
-        console.warn('[LegalDebug][DataService] No se pudo guardar fecha_inicio_cobro automatica', {
-          partialPatchError: err,
-          fullPatchError: fallbackErr,
-        });
       }
     }
   }
@@ -435,6 +571,18 @@ export class DataService {
     return `${year}-${month}-${day}`;
   }
 
+  async updateHistorialPago(
+    propiedadId: string,
+    historialId: string,
+    payload: AddHistorialPayload,
+  ): Promise<HistorialPago> {
+    const path = `/propiedades/${propiedadId}/historial/${historialId}`;
+    const record = await this.http.patch<HistorialPago>(path, payload);
+    await this.loadHistorialByPropiedad(propiedadId);
+    await this.loadPropiedad(propiedadId);
+    return record;
+  }
+
   async deleteHistorialPago(propiedadId: string, historialId: string): Promise<void> {
     const path = `/propiedades/${propiedadId}/historial/${historialId}`;
     await this.http.delete<void>(path);
@@ -442,22 +590,85 @@ export class DataService {
     await this.loadPropiedad(propiedadId);
   }
 
-  async addGestion(
+  /** Envía recordatorio de pago por correo (admin). El servidor valida deuda/email y envía el HTML del admin. */
+  async sendPaymentReminderEmail(
     propiedadId: string,
-    payload: { fecha: string; estado: string; descripcion: string }
-  ): Promise<Gestion> {
-    const path = `/propiedades/${propiedadId}/gestiones`;
-    console.log('[LegalDebug][DataService] addGestion -> POST', { path, propiedadId, payload });
-    try {
-      const gestion = await this.http.post<Gestion>(path, payload);
-      console.log('[LegalDebug][DataService] addGestion POST OK', gestion);
-      await this.loadGestionesByPropiedad(propiedadId);
-      console.log('[LegalDebug][DataService] addGestion reload OK');
-      return gestion;
-    } catch (err) {
-      console.error('[LegalDebug][DataService] addGestion FAIL', err);
-      throw err;
+    payload: {
+      subject?: string;
+      extra_recipients?: string[];
+      body_html: string;
+      body_text: string;
+      attachments?: PaymentReminderEmailAttachmentPayload[];
     }
+  ): Promise<PaymentReminderEmailRecord> {
+    await this.ensureMontoServidorParaRecordatorio(propiedadId);
+    return this.http.post<PaymentReminderEmailRecord>('/payment-reminders/email/send', {
+      propiedad_id: propiedadId,
+      subject: payload.subject,
+      extra_recipients: payload.extra_recipients?.length ? payload.extra_recipients : undefined,
+      body_html: payload.body_html,
+      body_text: payload.body_text,
+      attachments: payload.attachments,
+    });
+  }
+
+  /**
+   * Alinea `monto_a_la_fecha` en el servidor cuando la UI muestra deuda pero el campo en BD quedó en 0
+   * (p. ej. saldo inicial solo en localStorage, sin movimientos de historial).
+   */
+  private async ensureMontoServidorParaRecordatorio(propiedadId: string): Promise<void> {
+    let propiedad = this.getPropiedadById(propiedadId);
+    if (!propiedad) {
+      propiedad = await this.loadPropiedad(propiedadId);
+    } else {
+      await this.loadPropiedad(propiedadId);
+      propiedad = this.getPropiedadById(propiedadId) ?? propiedad;
+    }
+
+    const deudaUi = this.getDeudaActualParaPropiedad(propiedad);
+    if (deudaUi <= 0) return;
+
+    const montoServidor = Number(propiedad.monto_a_la_fecha);
+    if (montoServidor > 0) return;
+
+    const historial = this.getHistorialByPropiedad(propiedadId);
+    if (historial.length > 0) return;
+
+    await this.updatePropiedad(propiedadId, {
+      tipo_propiedad: propiedad.tipo_propiedad,
+      identificador: propiedad.identificador,
+      direccion: propiedad.direccion,
+      notas: propiedad.notas,
+      saldo_inicial: deudaUi,
+      cobro_nombre: propiedad.cobro_nombre,
+      cobro_tipo_persona: propiedad.cobro_tipo_persona,
+      cobro_documento: propiedad.cobro_documento,
+      cobro_email: propiedad.cobro_email,
+    });
+  }
+
+  async addGestion(propiedadId: string, payload: UpdateGestionPayload): Promise<Gestion> {
+    const gestion = await this.http.post<Gestion>(`/propiedades/${propiedadId}/gestiones`, payload);
+    await this.loadGestionesByPropiedad(propiedadId);
+    return gestion;
+  }
+
+  async updateGestion(
+    propiedadId: string,
+    gestionId: string,
+    payload: UpdateGestionPayload
+  ): Promise<Gestion> {
+    const gestion = await this.http.patch<Gestion>(
+      `/propiedades/${propiedadId}/gestiones/${gestionId}`,
+      payload
+    );
+    await this.loadGestionesByPropiedad(propiedadId);
+    return gestion;
+  }
+
+  async deleteGestion(propiedadId: string, gestionId: string): Promise<void> {
+    await this.http.delete<void>(`/propiedades/${propiedadId}/gestiones/${gestionId}`);
+    await this.loadGestionesByPropiedad(propiedadId);
   }
 
   getCuentasByCliente(clienteId: string): Cuenta[] {
@@ -477,13 +688,21 @@ export class DataService {
   }
 
   calcularMontoALaFecha(propiedadId: string): number {
+    const propiedad = this.getPropiedadById(propiedadId);
+    if (propiedad) return this.getDeudaActualParaPropiedad(propiedad);
+
     const historial = this.getHistorialByPropiedad(propiedadId);
     const totalCobrado = historial.reduce((sum, h) => sum + h.valor_cobrado, 0);
     const totalPagado = historial.reduce((sum, h) => sum + h.valor_pagado, 0);
-    return totalCobrado - totalPagado;
+    return Math.max(0, totalCobrado - totalPagado);
   }
 
   getTotalCartera(): number {
+    const propiedades = this.propiedadesSignal();
+    if (propiedades.length > 0) {
+      return propiedades.reduce((sum, p) => sum + this.getDeudaActualParaPropiedad(p), 0);
+    }
+
     return this.metricsDashboardSignal().total_cartera;
   }
 
@@ -528,8 +747,12 @@ export class DataService {
       this.loadMetricsDashboard(),
       this.loadDistribucionEstados(),
       this.loadClientes(),
+      this.loadPropiedades(),
     ]);
-    await this.loadCuentasForLoadedClientes();
+    await Promise.all([
+      this.loadCuentasForLoadedClientes(),
+      this.loadHistorialesForPropiedades(this.propiedadesSignal()),
+    ]);
   }
 
   async loadGraficosData(months = 12): Promise<void> {
@@ -539,7 +762,10 @@ export class DataService {
       this.loadEvolucionCartera(months),
       this.loadClientes(),
       this.loadPropiedades(),
+    ]);
+    await Promise.all([
       this.loadCuentasForLoadedClientes(),
+      this.loadHistorialesForPropiedades(this.propiedadesSignal()),
     ]);
   }
 
@@ -563,17 +789,32 @@ export class DataService {
     return cliente;
   }
 
+  async updateCliente(clienteId: string, payload: UpdateClientePayload): Promise<Cliente> {
+    const cliente = await this.http.patch<Cliente>(`/clientes/${clienteId}`, payload);
+    this.clientesSignal.update((prev) => this.upsertById(prev, cliente));
+    return cliente;
+  }
+
   async createPropiedad(payload: CreatePropiedadPayload): Promise<Propiedad> {
     // El backend calcula automáticamente el saldo/monto_a_la_fecha al crear la propiedad.
     const propiedad = await this.http.post<Propiedad>('/propiedades', payload);
+    this.writeSaldoInicialFijo(propiedad.id, payload.saldo_inicial);
+    const normalizedPropiedad = this.normalizePropiedadMonto(
+      { ...propiedad, saldo_inicial: propiedad.saldo_inicial ?? payload.saldo_inicial },
+      { ...propiedad, saldo_inicial: payload.saldo_inicial, monto_a_la_fecha: payload.saldo_inicial }
+    );
+    this.propiedadesSignal.update((prev) => this.upsertById(prev, normalizedPropiedad));
     await this.loadPropiedadesByCliente(payload.cliente_id);
-    return propiedad;
+    return normalizedPropiedad;
   }
 
   async updatePropiedad(propiedadId: string, payload: UpdatePropiedadPayload): Promise<Propiedad> {
     const propiedad = await this.http.patch<Propiedad>(`/propiedades/${propiedadId}`, payload);
+    const prevPropiedad = this.getPropiedadById(propiedadId);
+    const normalizedPropiedad = this.normalizePropiedadMonto(propiedad, prevPropiedad);
+    this.propiedadesSignal.update((prev) => this.upsertById(prev, normalizedPropiedad));
     await this.loadPropiedadesByCliente(propiedad.cliente_id);
-    return propiedad;
+    return normalizedPropiedad;
   }
 
   async deletePropiedad(propiedadId: string, clienteId: string): Promise<void> {
@@ -584,15 +825,16 @@ export class DataService {
   async loadPropiedades(clienteId?: string): Promise<Propiedad[]> {
     const params = clienteId ? new HttpParams().set('cliente_id', clienteId) : undefined;
     const items = await this.http.getItems<Propiedad>('/propiedades', { params });
+    const normalizedItems = this.normalizePropiedadesList(items);
     if (clienteId) {
       this.propiedadesSignal.update((prev) => {
         const others = prev.filter((p) => p.cliente_id !== clienteId);
-        return [...others, ...items];
+        return [...others, ...normalizedItems];
       });
     } else {
-      this.propiedadesSignal.set(items);
+      this.propiedadesSignal.set(normalizedItems);
     }
-    return items;
+    return normalizedItems;
   }
 
   async loadPropiedad(id: string): Promise<Propiedad> {
@@ -603,13 +845,18 @@ export class DataService {
     return normalizedPropiedad;
   }
 
+  async loadPropiedadDetallesForPropiedades(propiedades: Pick<Propiedad, 'id'>[]): Promise<Propiedad[]> {
+    return Promise.all(propiedades.map((p) => this.loadPropiedad(p.id)));
+  }
+
   async loadPropiedadesByCliente(clienteId: string): Promise<Propiedad[]> {
     const items = await this.http.getItems<Propiedad>(`/clientes/${clienteId}/propiedades`);
+    const normalizedItems = this.normalizePropiedadesList(items);
     this.propiedadesSignal.update((prev) => {
       const others = prev.filter((p) => p.cliente_id !== clienteId);
-      return [...others, ...items];
+      return [...others, ...normalizedItems];
     });
-    return items;
+    return normalizedItems;
   }
 
   async loadCuentasByCliente(clienteId: string): Promise<Cuenta[]> {
@@ -678,6 +925,10 @@ export class DataService {
     const items = await this.http.getItems<HistorialPago>(`/propiedades/${propiedadId}/historial`);
     this.historialByPropiedadSignal.update((prev) => ({ ...prev, [propiedadId]: items }));
     return items;
+  }
+
+  async loadHistorialesForPropiedades(propiedades: Pick<Propiedad, 'id'>[]): Promise<void> {
+    await Promise.all(propiedades.map((p) => this.loadHistorialByPropiedad(p.id)));
   }
 
   async loadGestionesByPropiedad(propiedadId: string): Promise<Gestion[]> {
@@ -754,29 +1005,108 @@ export class DataService {
     return copy;
   }
 
+  private getDeudaDesdePagosAcumulados(p: Propiedad, totalPagado: number): number {
+    return Math.max(0, this.getTotalCobradoParaPropiedad(p) - totalPagado);
+  }
+
+  private compareHistorialParaSaldo(a: HistorialPago, b: HistorialPago): number {
+    const byDate = this.historialBalanceDate(a) - this.historialBalanceDate(b);
+    if (byDate !== 0) return byDate;
+
+    const byCreated = Date.parse(a.created_at || '') - Date.parse(b.created_at || '');
+    if (Number.isFinite(byCreated) && byCreated !== 0) return byCreated;
+
+    return a.id.localeCompare(b.id);
+  }
+
+  private historialBalanceDate(h: HistorialPago): number {
+    const fechaPago = Date.parse((h.fecha_pago || '').slice(0, 10));
+    if (Number.isFinite(fechaPago)) return fechaPago;
+
+    const periodo = /^\d{4}-\d{2}$/.test(h.periodo) ? Date.parse(`${h.periodo}-01`) : Number.NaN;
+    if (Number.isFinite(periodo)) return periodo;
+
+    const created = Date.parse(h.created_at || '');
+    return Number.isFinite(created) ? created : 0;
+  }
+
+  private toMoneyNumber(value: unknown): number {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : 0;
+  }
+
+  private normalizePropiedadesList(items: Propiedad[]): Propiedad[] {
+    const prevById = new Map(this.propiedadesSignal().map((p) => [p.id, p]));
+    return items.map((p) => this.normalizePropiedadMonto(p, prevById.get(p.id)));
+  }
+
   private normalizePropiedadMonto(propiedad: Propiedad, prev?: Propiedad): Propiedad {
     const monto = Number(propiedad.monto_a_la_fecha);
     const saldoInicial = Number(propiedad.saldo_inicial);
-    const normalizedSaldoInicial = Number.isFinite(saldoInicial)
-      ? Math.max(0, saldoInicial)
-      : Number.isFinite(Number(prev?.saldo_inicial))
+    const lockedInicial = this.readSaldoInicialFijo(propiedad.id);
+    const normalizedSaldoInicial = lockedInicial != null
+      ? lockedInicial
+      : prev?.saldo_inicial != null && Number.isFinite(Number(prev.saldo_inicial))
         ? Math.max(0, Number(prev?.saldo_inicial))
-        : Number.isFinite(monto)
-          ? Math.max(0, monto)
-          : 0;
+        : propiedad.saldo_inicial != null && Number.isFinite(saldoInicial)
+          ? Math.max(0, saldoInicial)
+          : null;
+    if (normalizedSaldoInicial != null) this.writeSaldoInicialFijo(propiedad.id, normalizedSaldoInicial);
+    const fechas = {
+      fecha_inicio_cobro: this.normalizeFechaYmd(propiedad.fecha_inicio_cobro) ?? prev?.fecha_inicio_cobro ?? null,
+      fecha_fin_cobro: this.normalizeFechaYmd(propiedad.fecha_fin_cobro) ?? prev?.fecha_fin_cobro ?? null,
+    };
     if (Number.isFinite(monto)) {
-      return { ...propiedad, saldo_inicial: normalizedSaldoInicial, monto_a_la_fecha: Math.max(0, monto) };
+      return { ...propiedad, ...fechas, saldo_inicial: normalizedSaldoInicial, monto_a_la_fecha: Math.max(0, monto) };
     }
     return {
       ...propiedad,
+      ...fechas,
       saldo_inicial: normalizedSaldoInicial,
       // Si el detalle no trae monto válido, preservamos el último valor conocido (saldo inicial/monto cargado).
       monto_a_la_fecha: Math.max(0, Number(prev?.monto_a_la_fecha ?? 0)),
     };
   }
 
+  /** Normaliza fechas del API (ISO o YYYY-MM-DD) a YYYY-MM-DD. */
+  private normalizeFechaYmd(value: unknown): string | null {
+    if (value == null) return null;
+    const raw = String(value).trim();
+    if (!raw) return null;
+    const ymd = raw.slice(0, 10);
+    return /^\d{4}-\d{2}-\d{2}$/.test(ymd) ? ymd : null;
+  }
+
   private estadoCuentaStorageKey(propiedadId: string): string {
     return `legal.estadoCuentaFiles.${propiedadId}`;
+  }
+
+  private saldoInicialStorageKey(propiedadId: string): string {
+    return `legal.saldoInicial.${propiedadId}`;
+  }
+
+  private readSaldoInicialFijo(propiedadId: string): number | null {
+    const storage = this.getLocalStorage();
+    if (!storage) return null;
+    const raw = storage.getItem(this.saldoInicialStorageKey(propiedadId));
+    if (raw == null || raw.trim() === '') return null;
+    const value = Number(raw);
+    return Number.isFinite(value) ? Math.max(0, value) : null;
+  }
+
+  private writeSaldoInicialFijo(propiedadId: string, value: number): void {
+    const storage = this.getLocalStorage();
+    if (!storage) return;
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return;
+    storage.setItem(this.saldoInicialStorageKey(propiedadId), String(Math.max(0, numeric)));
+  }
+
+  private getLocalStorage(): Storage | null {
+    if (typeof globalThis.localStorage === 'undefined') return null;
+    const storage = globalThis.localStorage;
+    if (typeof storage.getItem !== 'function' || typeof storage.setItem !== 'function') return null;
+    return storage;
   }
 
   private readEstadoCuentaFilesFromStorage(propiedadId: string): EstadoCuentaFile[] {

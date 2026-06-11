@@ -1,5 +1,5 @@
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, inject, signal } from '@angular/core';
+import { Component, inject, OnInit, signal } from '@angular/core';
 import { ReactiveFormsModule, FormBuilder, Validators } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { fadeInUp } from '../../core/animations/animations';
@@ -130,7 +130,7 @@ import { DataService } from '../../core/services/data.service';
     </div>
   `,
 })
-export class NuevoClientePage {
+export class NuevoClientePage implements OnInit {
   private readonly fb = inject(FormBuilder);
   private readonly router = inject(Router);
   private readonly data = inject(DataService);
@@ -150,6 +150,10 @@ export class NuevoClientePage {
     observaciones: [''],
   });
 
+  ngOnInit(): void {
+    void this.data.loadClientes();
+  }
+
   async onSubmit(): Promise<void> {
     if (this.saving()) return;
 
@@ -162,14 +166,26 @@ export class NuevoClientePage {
       return;
     }
 
+    const documento = this.form.value.documento ?? '';
+    const email = this.form.value.email ?? '';
+
+    const duplicado = this.data.findClienteDuplicado({ documento, email });
+    if (duplicado) {
+      this.openAlert(
+        'Cliente ya existe',
+        'Ya hay un cliente registrado con ese documento o correo. Verifica la información antes de guardar.'
+      );
+      return;
+    }
+
     this.saving.set(true);
     try {
       await this.data.createCliente({
         nombre: this.form.value.nombre ?? '',
         tipo_persona: (this.form.value.tipo_persona ?? 'natural') as 'natural' | 'juridica',
-        documento: this.form.value.documento ?? '',
+        documento,
         telefono: this.form.value.telefono ?? '',
-        email: this.form.value.email ?? '',
+        email,
         direccion: this.form.value.direccion ?? '',
         observaciones: this.form.value.observaciones ?? '',
       });

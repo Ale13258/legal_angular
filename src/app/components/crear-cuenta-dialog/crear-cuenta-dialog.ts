@@ -1,6 +1,11 @@
 import { Component, effect, input, output, signal } from '@angular/core';
 import { DataService } from '../../core/services/data.service';
 import type { Cuenta, EstadoCuenta, EtapaProceso, Propiedad, TipoCuenta } from '../../core/models';
+import {
+  ETAPA_PROCESO_DEFAULT,
+  ETAPAS_PROCESO_ORDENADAS,
+  coerceEtapaProceso,
+} from '../../core/proceso-etapas';
 
 @Component({
   selector: 'app-crear-cuenta-dialog',
@@ -75,7 +80,7 @@ import type { Cuenta, EstadoCuenta, EtapaProceso, Propiedad, TipoCuenta } from '
               (change)="etapa.set($any($event.target).value)"
               class="w-full rounded-xl border border-input bg-background px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
             >
-              @for (opt of etapaOpciones; track opt.value) {
+              @for (opt of etapasProceso; track opt.value) {
                 <option [value]="opt.value">{{ opt.label }}</option>
               }
             </select>
@@ -136,7 +141,7 @@ export class CrearCuentaDialog {
   numeroCuenta = signal('');
   tipo = signal<TipoCuenta>('juridica');
   estado = signal<EstadoCuenta>('activa');
-  etapa = signal<EtapaProceso>('inicial');
+  etapa = signal<EtapaProceso>(ETAPA_PROCESO_DEFAULT);
   /** '' = sin propiedad */
   propiedadId = signal('');
 
@@ -155,13 +160,8 @@ export class CrearCuentaDialog {
     { value: 'cerrada', label: 'FINALIZADO' },
   ];
 
-  etapaOpciones: Array<{ value: EtapaProceso; label: string }> = [
-    { value: 'inicial', label: 'INICIAL' },
-    { value: 'notificacion', label: 'NOTIFICACIÓN' },
-    { value: 'conciliacion', label: 'CONCILIACIÓN' },
-    { value: 'demanda', label: 'DEMANDA' },
-    { value: 'ejecucion', label: 'EJECUCIÓN' },
-  ];
+  /** Catálogo de 13 etapas del proceso de radicación (fuente: proceso-etapas.ts). */
+  readonly etapasProceso = ETAPAS_PROCESO_ORDENADAS;
 
   /**
    * Clave = apertura del modal + cuenta. Así al abrir “Editar” siempre se cargan los valores actuales;
@@ -206,8 +206,7 @@ export class CrearCuentaDialog {
   }
 
   private coerceEtapa(v: unknown): EtapaProceso {
-    const s = String(v ?? '').trim() as EtapaProceso;
-    return this.etapaOpciones.some((o) => o.value === s) ? s : 'inicial';
+    return coerceEtapaProceso(v);
   }
 
   onFormSubmit(event: Event): void {
@@ -262,7 +261,7 @@ export class CrearCuentaDialog {
     this.numeroCuenta.set('');
     this.tipo.set('juridica');
     this.estado.set('activa');
-    this.etapa.set('inicial');
+    this.etapa.set(ETAPA_PROCESO_DEFAULT);
     this.propiedadId.set('');
     this.errorMsg.set(null);
   }

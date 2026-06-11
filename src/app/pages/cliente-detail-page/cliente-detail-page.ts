@@ -2,14 +2,20 @@ import { Component, computed, inject, signal } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 import { ReactiveFormsModule, FormBuilder, Validators } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
-import { DataService, type CreatePropiedadPayload, type UpdatePropiedadPayload } from '../../core/services/data.service';
+import {
+  DataService,
+  type CreatePropiedadPayload,
+  type UpdateClientePayload,
+  type UpdatePropiedadPayload,
+} from '../../core/services/data.service';
 import { ClientReportDialog } from '../../components/client-report-dialog/client-report-dialog';
 import { CrearCuentaDialog } from '../../components/crear-cuenta-dialog/crear-cuenta-dialog';
 import { ReportPreviewDialog } from '../../components/report-preview-dialog/report-preview-dialog';
 import { BalanceCard } from '../../shared/balance-card/balance-card';
+import { DeudorCell } from '../../shared/deudor-cell/deudor-cell';
 import { StatusBadge } from '../../shared/status-badge/status-badge';
 import { fadeInUpStagger } from '../../core/animations/animations';
-import type { Cuenta, Propiedad, TipoPropiedad } from '../../core/models';
+import type { Cuenta, Propiedad, TipoPersona, TipoPropiedad } from '../../core/models';
 
 @Component({
   selector: 'app-cliente-detail-page',
@@ -18,6 +24,7 @@ import type { Cuenta, Propiedad, TipoPropiedad } from '../../core/models';
     RouterLink,
     ReactiveFormsModule,
     BalanceCard,
+    DeudorCell,
     StatusBadge,
     ClientReportDialog,
     CrearCuentaDialog,
@@ -64,10 +71,20 @@ import type { Cuenta, Propiedad, TipoPropiedad } from '../../core/models';
           }
           <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
             <div class="lg:col-span-2 bg-card rounded-2xl shadow-card p-4 sm:p-6 border border-border/50 min-w-0">
-              <h2 class="font-display font-bold text-lg mb-4 flex items-center gap-2">
-                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-primary"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-                Información del Cliente
-              </h2>
+              <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+                <h2 class="font-display font-bold text-lg flex items-center gap-2">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-primary"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                  Información del Cliente
+                </h2>
+                <button
+                  type="button"
+                  (click)="openEditarCliente()"
+                  class="inline-flex items-center gap-1.5 rounded-xl border border-border px-3 py-1.5 text-sm font-medium hover:bg-muted shrink-0"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
+                  Editar
+                </button>
+              </div>
               <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
                 <div class="flex items-center gap-2 text-muted-foreground">
                   <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="shrink-0 text-muted-foreground"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
@@ -124,26 +141,32 @@ import type { Cuenta, Propiedad, TipoPropiedad } from '../../core/models';
               </button>
             </div>
             <div class="table-wrap">
-              <table class="w-full min-w-[56rem] table-fixed">
+              <table class="w-full min-w-[72rem] table-fixed">
                 <colgroup>
-                  <col class="w-[26%]" />
-                  <col class="w-[10%]" />
-                  <col class="w-[14%]" />
                   <col class="w-[18%]" />
+                  <col class="w-[8%]" />
+                  <col class="w-[11%]" />
                   <col class="w-[14%]" />
-                  <col class="w-[18%]" />
+                  <col class="w-[14%]" />
+                  <col class="w-[11%]" />
+                  <col class="w-[12%]" />
+                  <col class="w-[12%]" />
                 </colgroup>
                 <thead>
                   <tr class="border-b border-border">
                     <th class="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Propiedad</th>
                     <th class="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Tipo</th>
                     <th class="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Identificador</th>
+                    <th class="deudor-col text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">
+                      Deudor
+                    </th>
                     <th
                       class="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase whitespace-nowrap"
                       title="Días en mora y etapa. Pasa el cursor para ver alta en app, inicio y fin de cobro."
                     >
                       Edad en mora
                     </th>
+                    <th class="text-right px-3 py-3 text-xs font-semibold text-muted-foreground uppercase whitespace-nowrap">Valor inicial</th>
                     <th class="text-right px-3 py-3 text-xs font-semibold text-muted-foreground uppercase whitespace-nowrap">Deuda a la fecha</th>
                     <th class="text-right px-3 py-3 text-xs font-semibold text-muted-foreground uppercase whitespace-nowrap">Acciones</th>
                   </tr>
@@ -163,6 +186,9 @@ import type { Cuenta, Propiedad, TipoPropiedad } from '../../core/models';
                       <td class="px-4 py-3 font-medium">
                         <div class="truncate" [title]="p.identificador">{{ p.identificador }}</div>
                       </td>
+                      <td class="deudor-col px-4 py-3 text-sm align-top">
+                        <app-deudor-cell [propiedad]="p" />
+                      </td>
                       <td
                         class="px-4 py-3 text-right text-sm align-top max-w-[14rem]"
                         [title]="data.formatResumenMoraTooltip(resumenCobro(p))"
@@ -175,6 +201,9 @@ import type { Cuenta, Propiedad, TipoPropiedad } from '../../core/models';
                         </div>
                       </td>
                       <td class="px-3 py-3 text-right tabular-nums whitespace-nowrap align-middle">
+                        {{ data.formatCurrency(data.getTotalCobradoParaPropiedad(p)) }}
+                      </td>
+                      <td class="px-3 py-3 text-right tabular-nums whitespace-nowrap align-middle font-semibold">
                         {{ data.formatDeuda(data.getDeudaActualParaPropiedad(p)) }}
                       </td>
                       <td class="px-3 py-3 whitespace-nowrap align-middle text-right">
@@ -330,7 +359,10 @@ import type { Cuenta, Propiedad, TipoPropiedad } from '../../core/models';
       @if (propiedadCreateOpen()) {
         <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div class="fixed inset-0 bg-black/50" (click)="propiedadCreateOpen.set(false)"></div>
-          <div class="relative z-50 bg-card rounded-2xl shadow-lg border border-border w-full max-w-lg max-h-[90vh] overflow-y-auto">
+          <div
+            class="relative z-50 bg-card rounded-2xl shadow-lg border border-border w-full max-w-xl max-h-[90vh] overflow-y-auto"
+            (click)="$event.stopPropagation()"
+          >
             <div class="flex items-center justify-between px-6 py-4 border-b border-border sticky top-0 bg-card">
               <h2 class="font-display text-lg font-bold text-foreground">
                 {{ propiedadEditingId() ? 'Editar Propiedad' : 'Nueva Propiedad' }}
@@ -392,6 +424,57 @@ import type { Cuenta, Propiedad, TipoPropiedad } from '../../core/models';
                 ></textarea>
               </div>
 
+              <div class="border-t border-border pt-4 space-y-4">
+                <div>
+                  <h3 class="text-sm font-semibold text-foreground">Usuario a cobrar</h3>
+                  <p class="mt-1 text-xs text-muted-foreground">
+                    A este correo se enviarán las notificaciones de cobro de esta propiedad.
+                  </p>
+                </div>
+
+                <div>
+                  <label class="block text-sm font-medium text-foreground mb-1.5">Nombre completo / Razón social</label>
+                  <input
+                    formControlName="cobro_nombre"
+                    placeholder="Nombre de quien se cobra"
+                    class="w-full rounded-xl border border-input bg-background px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                  />
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label class="block text-sm font-medium text-foreground mb-1.5">Tipo de persona</label>
+                    <select
+                      formControlName="cobro_tipo_persona"
+                      class="w-full rounded-xl border border-input bg-background px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                    >
+                      <option value="natural">Persona natural</option>
+                      <option value="juridica">Persona jurídica</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label class="block text-sm font-medium text-foreground mb-1.5">
+                      {{ propiedadForm.get('cobro_tipo_persona')?.value === 'natural' ? 'Cédula (CC)' : 'NIT' }}
+                    </label>
+                    <input
+                      formControlName="cobro_documento"
+                      [placeholder]="propiedadForm.get('cobro_tipo_persona')?.value === 'natural' ? '1.023.456.789' : '900.123.456-7'"
+                      class="w-full rounded-xl border border-input bg-background px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label class="block text-sm font-medium text-foreground mb-1.5">Correo de notificación</label>
+                  <input
+                    type="email"
+                    formControlName="cobro_email"
+                    placeholder="correo@ejemplo.com"
+                    class="w-full rounded-xl border border-input bg-background px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                  />
+                </div>
+              </div>
+
               <div>
                 <label class="block text-sm font-medium text-foreground mb-1.5">Saldo inicial (COP)</label>
                 <input
@@ -399,9 +482,15 @@ import type { Cuenta, Propiedad, TipoPropiedad } from '../../core/models';
                   min="0"
                   step="1"
                   formControlName="saldo_inicial"
+                  [readonly]="!!propiedadEditingId()"
                   placeholder="Ej: 250000"
                   class="w-full rounded-xl border border-input bg-background px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                 />
+                @if (propiedadEditingId()) {
+                  <p class="mt-1 text-xs text-muted-foreground">
+                    El valor inicial se define al crear la propiedad y no cambia con pagos ni ediciones.
+                  </p>
+                }
               </div>
 
               <div>
@@ -473,6 +562,104 @@ import type { Cuenta, Propiedad, TipoPropiedad } from '../../core/models';
           </div>
         </div>
       }
+      @if (clienteEditOpen()) {
+        <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div class="fixed inset-0 bg-black/50" (click)="closeEditarCliente()"></div>
+          <div class="relative z-50 bg-card rounded-2xl shadow-lg border border-border w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between px-6 py-4 border-b border-border sticky top-0 bg-card">
+              <h2 class="font-display text-lg font-bold text-foreground">Editar información del cliente</h2>
+              <button
+                type="button"
+                (click)="closeEditarCliente()"
+                class="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted"
+                aria-label="Cerrar"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+              </button>
+            </div>
+
+            <form (ngSubmit)="guardarCliente()" [formGroup]="clienteForm" class="p-6 space-y-4">
+              @if (clienteEditError()) {
+                <div class="rounded-xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+                  {{ clienteEditError() }}
+                </div>
+              }
+
+              <div class="rounded-xl bg-muted/40 px-4 py-3 text-sm text-muted-foreground space-y-1">
+                <p>
+                  <span class="font-medium text-foreground">Documento:</span>
+                  {{ cliente()!.documento }}
+                </p>
+                <p>
+                  <span class="font-medium text-foreground">Tipo:</span>
+                  {{ cliente()!.tipo_persona === 'natural' ? 'Persona natural' : 'Persona jurídica' }}
+                </p>
+              </div>
+
+              <div>
+                <label class="block text-sm font-medium text-foreground mb-1.5">Nombre completo / Razón social</label>
+                <input
+                  formControlName="nombre"
+                  class="w-full rounded-xl border border-input bg-background px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+              </div>
+
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label class="block text-sm font-medium text-foreground mb-1.5">Teléfono</label>
+                  <input
+                    formControlName="telefono"
+                    class="w-full rounded-xl border border-input bg-background px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                  />
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-foreground mb-1.5">Email</label>
+                  <input
+                    type="email"
+                    formControlName="email"
+                    class="w-full rounded-xl border border-input bg-background px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label class="block text-sm font-medium text-foreground mb-1.5">Dirección</label>
+                <input
+                  formControlName="direccion"
+                  class="w-full rounded-xl border border-input bg-background px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+              </div>
+
+              <div>
+                <label class="block text-sm font-medium text-foreground mb-1.5">Observaciones (opcional)</label>
+                <textarea
+                  formControlName="observaciones"
+                  rows="3"
+                  class="w-full rounded-xl border border-input bg-background px-4 py-2.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary"
+                ></textarea>
+              </div>
+
+              <div class="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  (click)="closeEditarCliente()"
+                  class="flex-1 rounded-xl border-2 border-border px-4 py-2.5 text-sm font-medium hover:bg-muted"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  [disabled]="clienteEditLoading() || clienteForm.invalid"
+                  class="flex-1 inline-flex items-center justify-center gap-2 rounded-xl bg-primary text-primary-foreground px-4 py-2.5 text-sm font-medium hover:opacity-90 disabled:opacity-60"
+                >
+                  Guardar cambios
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      }
+
       @if (deleteCuentaConfirmOpen() && cuentaToDelete()) {
         <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div class="fixed inset-0 bg-black/50" (click)="cancelDeleteCuenta()"></div>
@@ -545,13 +732,28 @@ export class ClienteDetailPage {
     notas: [''],
     saldo_inicial: [0, [Validators.required, Validators.min(0)]],
     fecha_inicio_cobro: [''],
+    cobro_nombre: ['', Validators.required],
+    cobro_tipo_persona: ['natural' as TipoPersona, Validators.required],
+    cobro_documento: ['', Validators.required],
+    cobro_email: ['', [Validators.required, Validators.email]],
   });
 
   clientReportOpen = signal(false);
   propReportOpen = signal(false);
   selectedProp = signal<Propiedad | null>(null);
+  clienteEditOpen = signal(false);
+  clienteEditLoading = signal(false);
+  clienteEditError = signal<string | null>(null);
   readonly loading = signal(true);
   readonly error = signal<string | null>(null);
+
+  clienteForm = this.fb.group({
+    nombre: ['', Validators.required],
+    telefono: [''],
+    email: [''],
+    direccion: [''],
+    observaciones: [''],
+  });
 
   private id = computed(() => this.route.snapshot.paramMap.get('id')!);
   cliente = computed(() => this.data.getClienteById(this.id()));
@@ -577,11 +779,13 @@ export class ClienteDetailPage {
     this.error.set(null);
     const id = this.id();
     try {
-      await Promise.all([
+      const [, propiedades] = await Promise.all([
         this.data.loadCliente(id),
         this.data.loadPropiedadesByCliente(id),
         this.data.loadCuentasByCliente(id),
       ]);
+      const propiedadesDetalle = await this.data.loadPropiedadDetallesForPropiedades(propiedades);
+      await this.data.loadHistorialesForPropiedades(propiedadesDetalle);
     } catch {
       this.error.set('No se pudo cargar el detalle del cliente.');
     } finally {
@@ -594,17 +798,56 @@ export class ClienteDetailPage {
     this.propReportOpen.set(true);
   }
 
+  openEditarCliente(): void {
+    const c = this.cliente();
+    if (!c) return;
+    this.clienteEditError.set(null);
+    this.clienteForm.reset({
+      nombre: c.nombre,
+      telefono: c.telefono ?? '',
+      email: c.email ?? '',
+      direccion: c.direccion ?? '',
+      observaciones: c.observaciones ?? '',
+    });
+    this.clienteEditOpen.set(true);
+  }
+
+  closeEditarCliente(): void {
+    this.clienteEditOpen.set(false);
+    this.clienteEditError.set(null);
+  }
+
+  async guardarCliente(): Promise<void> {
+    const id = this.id();
+    if (!id || this.clienteForm.invalid) {
+      this.clienteForm.markAllAsTouched();
+      return;
+    }
+    this.clienteEditError.set(null);
+    this.clienteEditLoading.set(true);
+    try {
+      const payload: UpdateClientePayload = {
+        nombre: this.clienteForm.value.nombre ?? '',
+        telefono: this.clienteForm.value.telefono ?? '',
+        email: this.clienteForm.value.email ?? '',
+        direccion: this.clienteForm.value.direccion ?? '',
+        observaciones: (this.clienteForm.value.observaciones ?? '').trim(),
+      };
+      await this.data.updateCliente(id, payload);
+      this.closeEditarCliente();
+    } catch {
+      this.clienteEditError.set(
+        'No se pudo guardar la información del cliente. Verifica los datos e intenta nuevamente.'
+      );
+    } finally {
+      this.clienteEditLoading.set(false);
+    }
+  }
+
   openNuevaPropiedad(): void {
     this.propiedadEditingId.set(null);
     this.propiedadCreateError.set(null);
-    this.propiedadForm.reset({
-      tipo_propiedad: 'apartamento' as TipoPropiedad,
-      identificador: '',
-      direccion: '',
-      notas: '',
-      saldo_inicial: 0,
-      fecha_inicio_cobro: '',
-    });
+    this.resetPropiedadFormEmpty();
     this.propiedadCreateOpen.set(true);
   }
 
@@ -624,6 +867,10 @@ export class ClienteDetailPage {
       notas: propiedad.notas ?? '',
       saldo_inicial: Number(propiedad.saldo_inicial ?? propiedad.monto_a_la_fecha),
       fecha_inicio_cobro: propiedad.fecha_inicio_cobro?.trim().slice(0, 10) ?? '',
+      cobro_nombre: propiedad.cobro_nombre ?? '',
+      cobro_tipo_persona: (propiedad.cobro_tipo_persona ?? 'natural') as TipoPersona,
+      cobro_documento: propiedad.cobro_documento ?? '',
+      cobro_email: propiedad.cobro_email ?? '',
     });
     this.propiedadCreateOpen.set(true);
   }
@@ -689,6 +936,8 @@ export class ClienteDetailPage {
   closePropiedadModal(): void {
     this.propiedadCreateOpen.set(false);
     this.propiedadEditingId.set(null);
+    this.propiedadCreateError.set(null);
+    this.resetPropiedadFormEmpty();
   }
 
   async guardarPropiedad(): Promise<void> {
@@ -712,8 +961,11 @@ export class ClienteDetailPage {
         identificador: this.propiedadForm.value.identificador ?? '',
         direccion: this.propiedadForm.value.direccion ?? '',
         notas: (this.propiedadForm.value.notas ?? '').trim(),
-        saldo_inicial: saldoInicial,
         fecha_inicio_cobro,
+        cobro_nombre: (this.propiedadForm.value.cobro_nombre ?? '').trim(),
+        cobro_tipo_persona: this.propiedadForm.value.cobro_tipo_persona as TipoPersona,
+        cobro_documento: (this.propiedadForm.value.cobro_documento ?? '').trim(),
+        cobro_email: (this.propiedadForm.value.cobro_email ?? '').trim(),
       };
       const editingId = this.propiedadEditingId();
       if (editingId) {
@@ -721,19 +973,20 @@ export class ClienteDetailPage {
       } else {
         const payload: CreatePropiedadPayload = {
           cliente_id: clienteId,
-          ...commonPayload,
+          tipo_propiedad: commonPayload.tipo_propiedad!,
+          identificador: commonPayload.identificador!,
+          direccion: commonPayload.direccion!,
+          notas: commonPayload.notas!,
+          saldo_inicial: saldoInicial,
+          fecha_inicio_cobro: commonPayload.fecha_inicio_cobro,
+          cobro_nombre: commonPayload.cobro_nombre!,
+          cobro_tipo_persona: commonPayload.cobro_tipo_persona!,
+          cobro_documento: commonPayload.cobro_documento!,
+          cobro_email: commonPayload.cobro_email!,
         };
         await this.data.createPropiedad(payload);
       }
       this.closePropiedadModal();
-      this.propiedadForm.reset({
-        tipo_propiedad: 'apartamento' as TipoPropiedad,
-        identificador: '',
-        direccion: '',
-        notas: '',
-        saldo_inicial: 0,
-        fecha_inicio_cobro: '',
-      });
     } catch (err) {
       const backendMessage =
         err instanceof HttpErrorResponse
@@ -756,5 +1009,22 @@ export class ClienteDetailPage {
 
   protected resumenCobro(p: Propiedad) {
     return this.data.getResumenMoraCobroParaPropiedad(p);
+  }
+
+  private resetPropiedadFormEmpty(): void {
+    this.propiedadForm.reset({
+      tipo_propiedad: 'apartamento' as TipoPropiedad,
+      identificador: '',
+      direccion: '',
+      notas: '',
+      saldo_inicial: null,
+      fecha_inicio_cobro: '',
+      cobro_nombre: '',
+      cobro_tipo_persona: 'natural' as TipoPersona,
+      cobro_documento: '',
+      cobro_email: '',
+    });
+    this.propiedadForm.markAsPristine();
+    this.propiedadForm.markAsUntouched();
   }
 }

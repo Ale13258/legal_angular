@@ -2,13 +2,14 @@ import { Component, computed, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 import type { Propiedad } from '../../core/models';
 import { DataService } from '../../core/services/data.service';
+import { DeudorCell } from '../../shared/deudor-cell/deudor-cell';
 import { StatusBadge } from '../../shared/status-badge/status-badge';
 import { fadeInUp, fadeInUpStagger } from '../../core/animations/animations';
 
 @Component({
   selector: 'app-propiedades-page',
   standalone: true,
-  imports: [RouterLink, StatusBadge],
+  imports: [RouterLink, DeudorCell, StatusBadge],
   animations: [fadeInUp, fadeInUpStagger],
   template: `
     <div class="min-h-screen">
@@ -51,7 +52,7 @@ import { fadeInUp, fadeInUpStagger } from '../../core/animations/animations';
               </svg>
               <input
                 type="text"
-                placeholder="Buscar por identificador, dirección o cliente..."
+                placeholder="Buscar por identificador, dirección, cliente o deudor..."
                 class="w-full min-w-0 rounded-xl border border-input bg-background pl-10 pr-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                 [value]="search()"
                 (input)="search.set($any($event.target).value)"
@@ -116,7 +117,7 @@ import { fadeInUp, fadeInUpStagger } from '../../core/animations/animations';
           </div>
         </div>
 
-        <div class="bg-card rounded-2xl shadow-card border border-border/50 overflow-hidden">
+        <div class="bg-card rounded-2xl shadow-card border border-border/50">
           @if (loading()) {
             <div class="px-6 py-8 text-sm text-muted-foreground">Cargando propiedades...</div>
           }
@@ -132,6 +133,9 @@ import { fadeInUp, fadeInUpStagger } from '../../core/animations/animations';
                   </th>
                   <th class="text-left px-5 sm:px-6 py-3.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
                     Cliente
+                  </th>
+                  <th class="deudor-col text-left px-5 sm:px-6 py-3.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                    Deudor
                   </th>
                   <th class="text-left px-5 sm:px-6 py-3.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
                     Tipo
@@ -160,9 +164,12 @@ import { fadeInUp, fadeInUpStagger } from '../../core/animations/animations';
                     <td class="px-5 sm:px-6 py-4 text-sm font-medium text-foreground">{{ prop.identificador }}</td>
                     <td class="px-5 sm:px-6 py-4 text-sm text-muted-foreground">{{ prop.direccion }}</td>
                     <td class="px-5 sm:px-6 py-4 text-sm text-muted-foreground">{{ prop.cliente?.nombre }}</td>
+                    <td class="deudor-col px-5 sm:px-6 py-4 text-sm max-w-[12rem]" (click)="$event.stopPropagation()">
+                      <app-deudor-cell [propiedad]="prop" />
+                    </td>
                     <td class="px-5 sm:px-6 py-4">
                       <app-status-badge
-                        [label]="data.tipoPropiedadLabels[prop.tipo_propiedad] ?? prop.tipo_propiedad"
+                        [label]="data.tipoPropiedadLabels[prop.tipo_propiedad]"
                         [variant]="prop.tipo_propiedad"
                       />
                     </td>
@@ -230,7 +237,10 @@ export class PropiedadesPage {
         !s ||
         p.identificador.toLowerCase().includes(s) ||
         p.direccion.toLowerCase().includes(s) ||
-        p.cliente?.nombre.toLowerCase().includes(s);
+        p.cliente?.nombre.toLowerCase().includes(s) ||
+        p.cobro_nombre?.toLowerCase().includes(s) ||
+        p.cobro_email?.toLowerCase().includes(s) ||
+        p.cobro_documento?.toLowerCase().includes(s);
       const matchTipo = tip === 'todos' || p.tipo_propiedad === tip;
       const diasMora = this.resumenCobro(p).edad_mora_dias;
       const n = Number.isFinite(Number(diasMora)) ? Math.max(0, Math.floor(Number(diasMora))) : null;
