@@ -6,6 +6,7 @@ import { BalanceCard } from '../../shared/balance-card/balance-card';
 import { StatusBadge } from '../../shared/status-badge/status-badge';
 import { ReportPreviewDialog } from '../../components/report-preview-dialog/report-preview-dialog';
 import { PaymentReminderDialog } from '../../components/payment-reminder-dialog/payment-reminder-dialog';
+import { EmailReminderDetailDialog } from '../../components/email-reminder-detail-dialog/email-reminder-detail-dialog';
 import { RegistrarGestionDialog } from '../../components/registrar-gestion-dialog/registrar-gestion-dialog';
 import { AgregarRegistroDialog } from '../../components/agregar-registro-dialog/agregar-registro-dialog';
 import { fadeInFromLeft, fadeInUpStagger } from '../../core/animations/animations';
@@ -21,6 +22,7 @@ import type { EstadoCuentaFile, Gestion, HistorialPago } from '../../core/models
     StatusBadge,
     ReportPreviewDialog,
     PaymentReminderDialog,
+    EmailReminderDetailDialog,
     RegistrarGestionDialog,
     AgregarRegistroDialog,
     BaseChartDirective,
@@ -261,30 +263,59 @@ import type { EstadoCuentaFile, Gestion, HistorialPago } from '../../core/models
                       <div class="flex flex-wrap items-center gap-2 mb-1">
                         <span class="text-muted-foreground text-xs font-medium">{{ data.formatGestionFecha(g) }}</span>
                         <app-status-badge
-                          [label]="data.estadoGestionLabels[g.estado]"
+                          [label]="data.estadoGestionLabels[g.estado] || g.estado"
                           [variant]="g.estado"
                         />
+                        @if (data.isGestionEmailReminder(g)) {
+                          <span class="text-[10px] uppercase tracking-wide text-primary font-medium">Correo</span>
+                        }
                       </div>
-                      <p class="text-foreground text-sm">{{ g.descripcion }}</p>
+                      @if (data.isGestionEmailReminder(g)) {
+                        <button
+                          type="button"
+                          (click)="openEmailReminderDetail(g)"
+                          class="mt-0.5 w-full flex items-center gap-2.5 rounded-xl border border-primary/25 bg-primary/5 px-2.5 py-1.5 text-left hover:bg-primary/10 hover:border-primary/40 transition-colors group"
+                        >
+                          <span
+                            class="shrink-0 flex h-7 w-7 items-center justify-center rounded-md bg-primary/15 text-primary"
+                            aria-hidden="true"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                              <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                              <polyline points="22,6 12,13 2,6"/>
+                            </svg>
+                          </span>
+                          <span class="min-w-0 flex-1 text-sm text-foreground line-clamp-1 group-hover:text-primary">
+                            {{ g.descripcion }}
+                          </span>
+                          <span class="shrink-0 text-xs font-medium text-primary whitespace-nowrap">
+                            Ver correo
+                          </span>
+                        </button>
+                      } @else {
+                        <p class="text-foreground text-sm">{{ g.descripcion }}</p>
+                      }
                     </div>
-                    <div class="flex items-start gap-1 shrink-0 ml-2">
-                      <button
-                        type="button"
-                        (click)="editarGestion(g)"
-                        class="p-2 rounded-lg text-muted-foreground hover:text-primary hover:bg-secondary"
-                        title="Editar gestión"
-                      >
-                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
-                      </button>
-                      <button
-                        type="button"
-                        (click)="openDeleteGestionConfirm(g)"
-                        class="p-2 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                        title="Eliminar gestión"
-                      >
-                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>
-                      </button>
-                    </div>
+                    @if (!data.isGestionEmailReminder(g)) {
+                      <div class="flex items-start gap-1 shrink-0 ml-2">
+                        <button
+                          type="button"
+                          (click)="editarGestion(g)"
+                          class="p-2 rounded-lg text-muted-foreground hover:text-primary hover:bg-secondary"
+                          title="Editar gestión"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
+                        </button>
+                        <button
+                          type="button"
+                          (click)="openDeleteGestionConfirm(g)"
+                          class="p-2 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                          title="Eliminar gestión"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>
+                        </button>
+                      </div>
+                    }
                   </div>
                 }
               </div>
@@ -305,6 +336,14 @@ import type { EstadoCuentaFile, Gestion, HistorialPago } from '../../core/models
             [open]="true"
             [propiedad]="propiedad()!"
             (openChange)="reminderOpen.set($event)"
+            (sent)="onReminderSent()"
+          />
+        }
+        @if (emailReminderDetailOpen() && emailReminderId()) {
+          <app-email-reminder-detail-dialog
+            [open]="true"
+            [reminderId]="emailReminderId()!"
+            (openChange)="onEmailReminderDetailOpenChange($event)"
           />
         }
         @if (gestionOpen()) {
@@ -416,6 +455,8 @@ export class PropiedadDetailPage {
   @ViewChild('estadoCuentaFileInput') private estadoCuentaFileInput?: ElementRef<HTMLInputElement>;
   reportOpen = signal(false);
   reminderOpen = signal(false);
+  emailReminderDetailOpen = signal(false);
+  emailReminderId = signal<string | null>(null);
   gestionOpen = signal(false);
   gestionEditing = signal<Gestion | null>(null);
   gestionDialogNonce = signal(0);
@@ -532,9 +573,37 @@ export class PropiedadDetailPage {
   }
 
   editarGestion(g: Gestion): void {
+    if (this.data.isGestionEmailReminder(g)) return;
     this.gestionEditing.set(g);
     this.gestionDialogNonce.update((n) => n + 1);
     this.gestionOpen.set(true);
+  }
+
+  openEmailReminderDetail(g: Gestion): void {
+    const reminderId = g.email_reminder_id?.trim();
+    if (!reminderId) {
+      this.error.set('Esta gestión de correo no tiene el identificador del recordatorio.');
+      return;
+    }
+    this.emailReminderId.set(reminderId);
+    this.emailReminderDetailOpen.set(true);
+  }
+
+  onEmailReminderDetailOpenChange(open: boolean): void {
+    this.emailReminderDetailOpen.set(open);
+    if (!open) {
+      this.emailReminderId.set(null);
+    }
+  }
+
+  async onReminderSent(): Promise<void> {
+    const id = this.id();
+    this.error.set(null);
+    try {
+      await this.data.loadGestionesByPropiedad(id);
+    } catch {
+      // El envío ya se confirmó; el timeline se actualizará al recargar.
+    }
   }
 
   onGestionDialogOpenChange(open: boolean): void {
@@ -551,6 +620,10 @@ export class PropiedadDetailPage {
   }): Promise<void> {
     const propiedadId = this.id();
     const editing = this.gestionEditing();
+    if (editing && this.data.isGestionEmailReminder(editing)) {
+      this.error.set('Las gestiones de correo no se pueden editar.');
+      return;
+    }
     this.error.set(null);
     try {
       if (editing) {
@@ -559,16 +632,13 @@ export class PropiedadDetailPage {
         await this.data.addGestion(propiedadId, event);
       }
       this.onGestionDialogOpenChange(false);
-    } catch {
-      this.error.set(
-        editing
-          ? 'No se pudo editar la gestión. Verifica los datos e intenta nuevamente.'
-          : 'No se pudo registrar la gestión. Verifica los datos e intenta nuevamente.'
-      );
+    } catch (err) {
+      this.error.set(this.gestionMutationError(err, editing ? 'editar' : 'registrar'));
     }
   }
 
   openDeleteGestionConfirm(g: Gestion): void {
+    if (this.data.isGestionEmailReminder(g)) return;
     this.gestionToDelete.set(g);
     this.deleteGestionConfirmOpen.set(true);
   }
@@ -582,13 +652,32 @@ export class PropiedadDetailPage {
     const g = this.gestionToDelete();
     const propiedadId = this.id();
     if (!g || !propiedadId) return;
+    if (this.data.isGestionEmailReminder(g)) {
+      this.error.set('Las gestiones de correo no se pueden eliminar.');
+      this.cancelDeleteGestion();
+      return;
+    }
     this.error.set(null);
     try {
       await this.data.deleteGestion(propiedadId, g.id);
       this.cancelDeleteGestion();
-    } catch {
-      this.error.set('No se pudo eliminar la gestión. Intenta nuevamente.');
+    } catch (err) {
+      this.error.set(this.gestionMutationError(err, 'eliminar'));
     }
+  }
+
+  private gestionMutationError(error: unknown, action: 'editar' | 'registrar' | 'eliminar'): string {
+    const httpErr = error as { status?: number; error?: { code?: string; message?: string } };
+    if (httpErr?.status === 403 || httpErr?.error?.code === 'GESTION_READONLY') {
+      return 'Esta gestión de correo es de solo lectura.';
+    }
+    if (action === 'editar') {
+      return 'No se pudo editar la gestión. Verifica los datos e intenta nuevamente.';
+    }
+    if (action === 'eliminar') {
+      return 'No se pudo eliminar la gestión. Intenta nuevamente.';
+    }
+    return 'No se pudo registrar la gestión. Verifica los datos e intenta nuevamente.';
   }
 
   async onRegistroSaved(): Promise<void> {

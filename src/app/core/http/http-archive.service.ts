@@ -21,8 +21,8 @@ export class HttpArchiveService {
     return this.http.patch<T>(path, body, options);
   }
 
-  delete<T>(path: string, options?: object): Promise<T> {
-    return this.http.delete<T>(path, options);
+  delete(path: string, options?: object): Promise<void> {
+    return this.http.delete(path, options);
   }
 
   getRaw<T>(path: string, options?: object): Promise<T> {
@@ -41,8 +41,8 @@ export class HttpArchiveService {
     return this.http.patchRaw<T>(path, body, options);
   }
 
-  deleteRaw<T>(path: string, options?: object): Promise<T> {
-    return this.http.deleteRaw<T>(path, options);
+  deleteRaw(path: string, options?: object): Promise<void> {
+    return this.http.deleteRaw(path, options);
   }
 
   getItems<T>(path: string, options?: object): Promise<T[]> {

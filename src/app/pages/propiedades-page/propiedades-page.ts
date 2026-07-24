@@ -240,7 +240,13 @@ export class PropiedadesPage {
         p.cliente?.nombre.toLowerCase().includes(s) ||
         p.cobro_nombre?.toLowerCase().includes(s) ||
         p.cobro_email?.toLowerCase().includes(s) ||
-        p.cobro_documento?.toLowerCase().includes(s);
+        p.cobro_documento?.toLowerCase().includes(s) ||
+        (p.deudores ?? []).some(
+          (d) =>
+            d.nombre?.toLowerCase().includes(s) ||
+            d.documento?.toLowerCase().includes(s) ||
+            d.emails.some((e) => e.toLowerCase().includes(s))
+        );
       const matchTipo = tip === 'todos' || p.tipo_propiedad === tip;
       const diasMora = this.resumenCobro(p).edad_mora_dias;
       const n = Number.isFinite(Number(diasMora)) ? Math.max(0, Math.floor(Number(diasMora))) : null;

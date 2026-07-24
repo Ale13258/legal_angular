@@ -3,10 +3,13 @@ import { Injectable, inject, signal } from '@angular/core';
 import { etiquetaCortaParaDiasMora, etiquetaParaDiasMora } from '../mora-etapas';
 import { ETAPA_PROCESO_LABELS, etiquetaEtapaProceso } from '../proceso-etapas';
 import { HttpService } from '../http/http.service';
+import { formatMontoColombianoCurrency } from '../utils/format-monto-colombiano';
+import { normalizePropiedadDeudores, resolveDeudores } from '../utils/normalize-propiedad-deudores';
 import type {
   Cliente,
   ConceptoPago,
   Cuenta,
+  DeudorCobro,
   EstadoCuentaFile,
   EstadoCuentaFileMeta,
   EstadoCuenta,
@@ -40,6 +43,8 @@ export type CreatePropiedadPayload = {
   cobro_tipo_persona: Propiedad['cobro_tipo_persona'];
   cobro_documento: string;
   cobro_email: string;
+  /** Fuente de verdad; el espejo `cobro_*` debe coincidir con `deudores[0]`. */
+  deudores: DeudorCobro[];
   /** ISO fecha `YYYY-MM-DD`; opcional según contrato del API */
   fecha_inicio_cobro?: string | null;
 };
@@ -54,6 +59,7 @@ export type UpdatePropiedadPayload = {
   cobro_tipo_persona?: Propiedad['cobro_tipo_persona'];
   cobro_documento?: string;
   cobro_email?: string;
+  deudores?: DeudorCobro[];
   fecha_inicio_cobro?: string | null;
 };
 
@@ -103,6 +109,9 @@ export class DataService {
   private readonly cuentasSignal = signal<Cuenta[]>([]);
   private readonly historialByPropiedadSignal = signal<Record<string, HistorialPago[]>>({});
   private readonly gestionesByPropiedadSignal = signal<Record<string, Gestion[]>>({});
+  private readonly paymentRemindersByPropiedadSignal = signal<
+    Record<string, PaymentReminderEmailRecord[]>
+  >({});
   private readonly estadoCuentaFilesByPropiedadSignal = signal<Record<string, EstadoCuentaFile[]>>({});
   private readonly metricsDashboardSignal = signal({
     total_cartera: 0,
@@ -163,12 +172,7 @@ export class DataService {
   formatCurrency(value: number): string {
     const numeric = Number(value);
     const safeValue = Number.isFinite(numeric) ? numeric : 0;
-    return new Intl.NumberFormat('es-CO', {
-      style: 'currency',
-      currency: 'COP',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(safeValue);
+    return formatMontoColombianoCurrency(safeValue);
   }
 
   /** Deuda en UI: nunca negativa. */
@@ -330,28 +334,62 @@ export class DataService {
   }
 
   /** Nombre del deudor (usuario a cobrar) para celdas de tabla. */
-  formatDeudorCorto(p: Pick<Propiedad, 'cobro_nombre'>): string {
-    const nombre = p.cobro_nombre?.trim();
-    return nombre || '—';
+  formatDeudorCorto(
+    p: Pick<Propiedad, 'cobro_nombre' | 'cobro_tipo_persona' | 'cobro_documento' | 'cobro_email' | 'deudores'>,
+  ): string {
+    const deudores = resolveDeudores(p);
+    const first = deudores[0]?.nombre?.trim() || p.cobro_nombre?.trim();
+    if (!first) return '—';
+    if (deudores.length <= 1) return first;
+    return `${first} +${deudores.length - 1}`;
   }
 
-  /** Tooltip con todos los datos del deudor de la propiedad. */
-  formatDeudorTooltip(
-    p: Pick<Propiedad, 'cobro_nombre' | 'cobro_tipo_persona' | 'cobro_documento' | 'cobro_email'>,
+  /** Resumen corto de correos para la celda (primer correo + contador). */
+  formatDeudorEmailCorto(
+    p: Pick<Propiedad, 'cobro_nombre' | 'cobro_tipo_persona' | 'cobro_documento' | 'cobro_email' | 'deudores'>,
   ): string {
-    const nombre = p.cobro_nombre?.trim();
-    const documento = p.cobro_documento?.trim();
-    const email = p.cobro_email?.trim();
-    const docLabel = p.cobro_tipo_persona === 'natural' ? 'CC' : 'NIT';
-    const tipo =
-      p.cobro_tipo_persona === 'natural' ? 'Persona natural' : 'Persona jurídica';
+    const deudores = resolveDeudores(p);
+    const emails = deudores.flatMap((d) => d.emails).filter(Boolean);
+    if (!emails.length) {
+      const legacy = p.cobro_email?.trim();
+      return legacy || '';
+    }
+    if (emails.length === 1) return emails[0];
+    return `${emails[0]} +${emails.length - 1}`;
+  }
 
-    return [
-      `Deudor: ${nombre || '—'}`,
-      `Tipo: ${tipo}`,
-      `${docLabel}: ${documento || '—'}`,
-      `Correo: ${email || '—'}`,
-    ].join('\n');
+  /** Tooltip con todos los deudores y correos de la propiedad. */
+  formatDeudorTooltip(
+    p: Pick<Propiedad, 'cobro_nombre' | 'cobro_tipo_persona' | 'cobro_documento' | 'cobro_email' | 'deudores'>,
+  ): string {
+    const deudores = resolveDeudores(p);
+    if (!deudores.length) {
+      return ['Deudor: —', 'Tipo: —', 'Documento: —', 'Correo: —'].join('\n');
+    }
+
+    const blocks = deudores.map((d, index) => this.formatDeudorBlock(d, index, deudores.length > 1));
+    return blocks.join('\n\n');
+  }
+
+  private formatDeudorBlock(d: DeudorCobro, index: number, multi: boolean): string {
+    const nombre = d.nombre?.trim() || '—';
+    const documento = d.documento?.trim() || '—';
+    const docLabel = d.tipo_persona === 'natural' ? 'CC' : 'NIT';
+    const tipo = d.tipo_persona === 'natural' ? 'Persona natural' : 'Persona jurídica';
+    const emails = d.emails.map((e) => e.trim()).filter(Boolean);
+    const header = multi ? `Deudor ${index + 1}: ${nombre}` : `Deudor: ${nombre}`;
+    const lines = [header, `Tipo: ${tipo}`, `${docLabel}: ${documento}`];
+    if (!emails.length) {
+      lines.push('Correo: —');
+    } else if (emails.length === 1) {
+      lines.push(`Correo: ${emails[0]}`);
+    } else {
+      lines.push('Correos:');
+      for (const email of emails) {
+        lines.push(`  • ${email}`);
+      }
+    }
+    return lines.join('\n');
   }
 
   /** Una sola línea para PDF/Excel: días y etapa corta. */
@@ -548,6 +586,7 @@ export class DataService {
           cobro_tipo_persona: propiedad.cobro_tipo_persona,
           cobro_documento: propiedad.cobro_documento,
           cobro_email: propiedad.cobro_email,
+          deudores: propiedad.deudores,
           fecha_inicio_cobro: fechaInicio,
         };
         await this.updatePropiedad(propiedadId, fallbackPayload);
@@ -585,7 +624,7 @@ export class DataService {
 
   async deleteHistorialPago(propiedadId: string, historialId: string): Promise<void> {
     const path = `/propiedades/${propiedadId}/historial/${historialId}`;
-    await this.http.delete<void>(path);
+    await this.http.delete(path);
     await this.loadHistorialByPropiedad(propiedadId);
     await this.loadPropiedad(propiedadId);
   }
@@ -602,7 +641,7 @@ export class DataService {
     }
   ): Promise<PaymentReminderEmailRecord> {
     await this.ensureMontoServidorParaRecordatorio(propiedadId);
-    return this.http.post<PaymentReminderEmailRecord>('/payment-reminders/email/send', {
+    const record = await this.http.post<PaymentReminderEmailRecord>('/payment-reminders/email/send', {
       propiedad_id: propiedadId,
       subject: payload.subject,
       extra_recipients: payload.extra_recipients?.length ? payload.extra_recipients : undefined,
@@ -610,6 +649,44 @@ export class DataService {
       body_text: payload.body_text,
       attachments: payload.attachments,
     });
+    if (record.status === 'sent') {
+      // La gestión la crea el backend; refrescamos el timeline sin fallar el envío si el GET falla.
+      try {
+        await this.loadGestionesByPropiedad(propiedadId);
+      } catch {
+        /* ignore */
+      }
+    }
+    return record;
+  }
+
+  /** Listado de recordatorios de la propiedad (sin cuerpos pesados en algunos backends). */
+  async loadPaymentRemindersByPropiedad(propiedadId: string): Promise<PaymentReminderEmailRecord[]> {
+    const items = await this.http.getItems<PaymentReminderEmailRecord>(
+      `/propiedades/${propiedadId}/payment-reminders`
+    );
+    this.paymentRemindersByPropiedadSignal.update((prev) => ({ ...prev, [propiedadId]: items }));
+    return items;
+  }
+
+  getPaymentRemindersByPropiedad(propiedadId: string): PaymentReminderEmailRecord[] {
+    return (this.paymentRemindersByPropiedadSignal()[propiedadId] ?? [])
+      .slice()
+      .sort((a, b) => {
+        const ta = Date.parse(a.sent_at ?? a.created_at) || 0;
+        const tb = Date.parse(b.sent_at ?? b.created_at) || 0;
+        return tb - ta;
+      });
+  }
+
+  /** Detalle completo del recordatorio (incluye body_html / body_text). */
+  async getPaymentReminderById(reminderId: string): Promise<PaymentReminderEmailRecord> {
+    return this.http.get<PaymentReminderEmailRecord>(`/payment-reminders/${reminderId}`);
+  }
+
+  /** Gestiones creadas automáticamente al enviar un recordatorio (solo lectura). */
+  isGestionEmailReminder(g: Pick<Gestion, 'origen' | 'email_reminder_id'>): boolean {
+    return g.origen === 'email_reminder' || !!g.email_reminder_id;
   }
 
   /**
@@ -644,6 +721,7 @@ export class DataService {
       cobro_tipo_persona: propiedad.cobro_tipo_persona,
       cobro_documento: propiedad.cobro_documento,
       cobro_email: propiedad.cobro_email,
+      deudores: propiedad.deudores,
     });
   }
 
@@ -667,7 +745,7 @@ export class DataService {
   }
 
   async deleteGestion(propiedadId: string, gestionId: string): Promise<void> {
-    await this.http.delete<void>(`/propiedades/${propiedadId}/gestiones/${gestionId}`);
+    await this.http.delete(`/propiedades/${propiedadId}/gestiones/${gestionId}`);
     await this.loadGestionesByPropiedad(propiedadId);
   }
 
@@ -799,9 +877,20 @@ export class DataService {
     // El backend calcula automáticamente el saldo/monto_a_la_fecha al crear la propiedad.
     const propiedad = await this.http.post<Propiedad>('/propiedades', payload);
     this.writeSaldoInicialFijo(propiedad.id, payload.saldo_inicial);
+    const withPayloadDeudores: Propiedad = {
+      ...propiedad,
+      saldo_inicial: propiedad.saldo_inicial ?? payload.saldo_inicial,
+      deudores: Array.isArray(propiedad.deudores) && propiedad.deudores.length > 0
+        ? propiedad.deudores
+        : payload.deudores,
+      cobro_nombre: propiedad.cobro_nombre || payload.cobro_nombre,
+      cobro_tipo_persona: propiedad.cobro_tipo_persona || payload.cobro_tipo_persona,
+      cobro_documento: propiedad.cobro_documento || payload.cobro_documento,
+      cobro_email: propiedad.cobro_email || payload.cobro_email,
+    };
     const normalizedPropiedad = this.normalizePropiedadMonto(
-      { ...propiedad, saldo_inicial: propiedad.saldo_inicial ?? payload.saldo_inicial },
-      { ...propiedad, saldo_inicial: payload.saldo_inicial, monto_a_la_fecha: payload.saldo_inicial }
+      withPayloadDeudores,
+      { ...withPayloadDeudores, saldo_inicial: payload.saldo_inicial, monto_a_la_fecha: payload.saldo_inicial }
     );
     this.propiedadesSignal.update((prev) => this.upsertById(prev, normalizedPropiedad));
     await this.loadPropiedadesByCliente(payload.cliente_id);
@@ -811,15 +900,56 @@ export class DataService {
   async updatePropiedad(propiedadId: string, payload: UpdatePropiedadPayload): Promise<Propiedad> {
     const propiedad = await this.http.patch<Propiedad>(`/propiedades/${propiedadId}`, payload);
     const prevPropiedad = this.getPropiedadById(propiedadId);
-    const normalizedPropiedad = this.normalizePropiedadMonto(propiedad, prevPropiedad);
+    const nuevoSaldo =
+      payload.saldo_inicial != null && Number.isFinite(Number(payload.saldo_inicial))
+        ? Math.max(0, Number(payload.saldo_inicial))
+        : null;
+    if (nuevoSaldo != null) {
+      this.writeSaldoInicialFijo(propiedadId, nuevoSaldo);
+    }
+    // Si el PATCH trae saldo_inicial, debe ganar sobre el valor previo en memoria
+    // (normalizePropiedadMonto prioriza lock/prev sobre el payload del servidor).
+    const propiedadConSaldo: Propiedad = {
+      ...(nuevoSaldo != null ? { ...propiedad, saldo_inicial: nuevoSaldo } : propiedad),
+      deudores:
+        Array.isArray(propiedad.deudores) && propiedad.deudores.length > 0
+          ? propiedad.deudores
+          : payload.deudores ?? prevPropiedad?.deudores,
+    };
+    const prevConSaldo =
+      nuevoSaldo != null && prevPropiedad
+        ? { ...prevPropiedad, saldo_inicial: nuevoSaldo }
+        : prevPropiedad;
+    const normalizedPropiedad = this.normalizePropiedadMonto(propiedadConSaldo, prevConSaldo);
     this.propiedadesSignal.update((prev) => this.upsertById(prev, normalizedPropiedad));
     await this.loadPropiedadesByCliente(propiedad.cliente_id);
-    return normalizedPropiedad;
+    return this.getPropiedadById(propiedadId) ?? normalizedPropiedad;
   }
 
   async deletePropiedad(propiedadId: string, clienteId: string): Promise<void> {
-    await this.http.delete<void>(`/propiedades/${propiedadId}`);
-    await this.loadPropiedadesByCliente(clienteId);
+    await this.http.delete(`/propiedades/${propiedadId}`);
+    this.propiedadesSignal.update((prev) => prev.filter((p) => p.id !== propiedadId));
+    this.historialByPropiedadSignal.update((prev) => {
+      const { [propiedadId]: _removed, ...rest } = prev;
+      return rest;
+    });
+    this.gestionesByPropiedadSignal.update((prev) => {
+      const { [propiedadId]: _removed, ...rest } = prev;
+      return rest;
+    });
+    this.paymentRemindersByPropiedadSignal.update((prev) => {
+      const { [propiedadId]: _removed, ...rest } = prev;
+      return rest;
+    });
+    this.estadoCuentaFilesByPropiedadSignal.update((prev) => {
+      const { [propiedadId]: _removed, ...rest } = prev;
+      return rest;
+    });
+    try {
+      await this.loadPropiedadesByCliente(clienteId);
+    } catch {
+      // El borrado ya se aplicó en servidor y en el listado local.
+    }
   }
 
   async loadPropiedades(clienteId?: string): Promise<Propiedad[]> {
@@ -916,7 +1046,7 @@ export class DataService {
   }
 
   async deleteCuenta(cuentaId: string, clienteId: string): Promise<void> {
-    await this.http.delete<void>(`/cuentas/${cuentaId}`);
+    await this.http.delete(`/cuentas/${cuentaId}`);
     await this.loadCuentasByCliente(clienteId);
     await this.loadMetricsDashboard();
   }
@@ -1041,26 +1171,39 @@ export class DataService {
   }
 
   private normalizePropiedadMonto(propiedad: Propiedad, prev?: Propiedad): Propiedad {
-    const monto = Number(propiedad.monto_a_la_fecha);
-    const saldoInicial = Number(propiedad.saldo_inicial);
-    const lockedInicial = this.readSaldoInicialFijo(propiedad.id);
+    const withDeudores = normalizePropiedadDeudores({
+      ...propiedad,
+      // Si el API no trae deudores pero el estado local sí, conserva la lista previa.
+      deudores:
+        Array.isArray(propiedad.deudores) && propiedad.deudores.length > 0
+          ? propiedad.deudores
+          : prev?.deudores,
+    });
+    const monto = Number(withDeudores.monto_a_la_fecha);
+    const saldoInicial = Number(withDeudores.saldo_inicial);
+    const lockedInicial = this.readSaldoInicialFijo(withDeudores.id);
     const normalizedSaldoInicial = lockedInicial != null
       ? lockedInicial
       : prev?.saldo_inicial != null && Number.isFinite(Number(prev.saldo_inicial))
         ? Math.max(0, Number(prev?.saldo_inicial))
-        : propiedad.saldo_inicial != null && Number.isFinite(saldoInicial)
+        : withDeudores.saldo_inicial != null && Number.isFinite(saldoInicial)
           ? Math.max(0, saldoInicial)
           : null;
-    if (normalizedSaldoInicial != null) this.writeSaldoInicialFijo(propiedad.id, normalizedSaldoInicial);
+    if (normalizedSaldoInicial != null) this.writeSaldoInicialFijo(withDeudores.id, normalizedSaldoInicial);
     const fechas = {
-      fecha_inicio_cobro: this.normalizeFechaYmd(propiedad.fecha_inicio_cobro) ?? prev?.fecha_inicio_cobro ?? null,
-      fecha_fin_cobro: this.normalizeFechaYmd(propiedad.fecha_fin_cobro) ?? prev?.fecha_fin_cobro ?? null,
+      fecha_inicio_cobro: this.normalizeFechaYmd(withDeudores.fecha_inicio_cobro) ?? prev?.fecha_inicio_cobro ?? null,
+      fecha_fin_cobro: this.normalizeFechaYmd(withDeudores.fecha_fin_cobro) ?? prev?.fecha_fin_cobro ?? null,
     };
     if (Number.isFinite(monto)) {
-      return { ...propiedad, ...fechas, saldo_inicial: normalizedSaldoInicial, monto_a_la_fecha: Math.max(0, monto) };
+      return {
+        ...withDeudores,
+        ...fechas,
+        saldo_inicial: normalizedSaldoInicial,
+        monto_a_la_fecha: Math.max(0, monto),
+      };
     }
     return {
-      ...propiedad,
+      ...withDeudores,
       ...fechas,
       saldo_inicial: normalizedSaldoInicial,
       // Si el detalle no trae monto válido, preservamos el último valor conocido (saldo inicial/monto cargado).

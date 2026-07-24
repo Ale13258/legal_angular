@@ -155,7 +155,7 @@ export class CrearCuentaDialog {
   ];
 
   estadoOpciones: Array<{ value: EstadoCuenta; label: string }> = [
-    { value: 'activa', label: 'ACTIVA' },
+
     { value: 'en_proceso', label: 'EN PROCESO' },
     { value: 'cerrada', label: 'FINALIZADO' },
   ];

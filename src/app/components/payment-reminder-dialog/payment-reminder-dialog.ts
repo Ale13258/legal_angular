@@ -9,6 +9,7 @@ import {
   formatLegalParagraphInnerHtml,
   type LegalReminderBodyContext,
 } from '../../core/utils/payment-reminder-legal-body';
+import { collectPropiedadEmails } from '../../core/utils/normalize-propiedad-deudores';
 
 const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
 const MAX_ATTACHMENTS = 5;
@@ -109,7 +110,7 @@ type ReminderAttachment = {
                 [value]="cuerpoPersonalizado()"
                 (input)="cuerpoPersonalizado.set($any($event.target).value)"
                 rows="8"
-                placeholder="Escriba aquí el cuerpo del correo. Separe párrafos con una línea en blanco. El monto y frases clave se formatean en negrita automáticamente."
+                placeholder="Escriba aquí el cuerpo del correo. Separe párrafos con una línea en blanco."
                 class="w-full rounded-xl border border-input bg-background px-4 py-3 text-sm text-foreground resize-y focus:outline-none focus:ring-2 focus:ring-primary/30"
               ></textarea>
               <p class="text-xs text-muted-foreground mt-1.5">
@@ -310,6 +311,8 @@ export class PaymentReminderDialog {
   open = input<boolean>(true);
   propiedad = input.required<Propiedad>();
   openChange = output<boolean>();
+  /** Emitido cuando el backend confirma `status === 'sent'` (la gestión la crea el servidor). */
+  sent = output<void>();
 
   private sanitizer = inject(DomSanitizer);
   destinatario = signal('');
@@ -365,9 +368,12 @@ export class PaymentReminderDialog {
       if (this.lastSyncedPropiedadKey === key) return;
       this.lastSyncedPropiedadKey = key;
 
-      const primary = p.cobro_email?.trim() ?? '';
+      const emails = collectPropiedadEmails(p);
+      const primary = emails[0] ?? p.cobro_email?.trim() ?? '';
+      const extras = emails.slice(1, 1 + MAX_EXTRA_RECIPIENTS);
       this.destinatario.set(primary);
-      const campo = primary ? `${primary}, ` : '';
+      const extrasSuffix = extras.length ? `${extras.join(', ')}, ` : '';
+      const campo = primary ? `${primary}, ${extrasSuffix}` : extrasSuffix;
       this.destinatariosCampo.set(campo);
       queueMicrotask(() => {
         const el = this.destInput()?.nativeElement;
@@ -470,6 +476,7 @@ export class PaymentReminderDialog {
       });
       if (result.status === 'sent') {
         this.sendSuccess.set(`Correo enviado a ${result.cliente_email}.`);
+        this.sent.emit();
         return;
       }
       this.sendError.set(result.error_message ?? 'El servidor no confirmó el envío del correo.');

@@ -16,6 +16,35 @@ function clearLocalStorage(): void {
   if (storage && typeof storage.clear === 'function') storage.clear();
 }
 
+/** Vitest a veces deja un localStorage no persistente; forzamos uno en memoria. */
+function installMemoryLocalStorage(): void {
+  const map = new Map<string, string>();
+  const memoryStorage: Storage = {
+    get length() {
+      return map.size;
+    },
+    clear() {
+      map.clear();
+    },
+    getItem(key: string) {
+      return map.has(key) ? map.get(key)! : null;
+    },
+    key(index: number) {
+      return [...map.keys()][index] ?? null;
+    },
+    removeItem(key: string) {
+      map.delete(key);
+    },
+    setItem(key: string, value: string) {
+      map.set(String(key), String(value));
+    },
+  };
+  Object.defineProperty(globalThis, 'localStorage', {
+    configurable: true,
+    value: memoryStorage,
+  });
+}
+
 const sampleCobroPropiedad = {
   cobro_nombre: 'Contacto Cobro',
   cobro_tipo_persona: 'natural' as const,
@@ -28,6 +57,7 @@ describe('DataService', () => {
   let httpMock: HttpTestingController;
 
   beforeEach(() => {
+    installMemoryLocalStorage();
     clearLocalStorage();
     TestBed.configureTestingModule({
       providers: [provideHttpClient(), provideHttpClientTesting()],
@@ -45,9 +75,56 @@ describe('DataService', () => {
     expect(service).toBeTruthy();
   });
 
-  it('should format currency in COP', () => {
-    expect(service.formatCurrency(1000000)).toContain('1');
-    expect(service.formatCurrency(1000000)).toMatch(/[\d.,]+/);
+  it('should format currency in COP without losing digits', () => {
+    expect(service.formatCurrency(9565879)).toBe('$ 9.565.879');
+    expect(service.formatCurrency(1000000)).toContain('1.000.000');
+  });
+
+  it('formatDeudorTooltip lista todos los deudores y correos', () => {
+    const tip = service.formatDeudorTooltip({
+      cobro_nombre: 'Juan',
+      cobro_tipo_persona: 'natural',
+      cobro_documento: '111',
+      cobro_email: 'juan@test.com',
+      deudores: [
+        {
+          nombre: 'Juan',
+          tipo_persona: 'natural',
+          documento: '111',
+          emails: ['juan@test.com', 'juan2@test.com'],
+        },
+        {
+          nombre: 'María',
+          tipo_persona: 'natural',
+          documento: '222',
+          emails: ['maria@test.com'],
+        },
+      ],
+    });
+    expect(tip).toContain('Deudor 1: Juan');
+    expect(tip).toContain('• juan2@test.com');
+    expect(tip).toContain('Deudor 2: María');
+    expect(tip).toContain('Correo: maria@test.com');
+    expect(service.formatDeudorCorto({
+      cobro_nombre: 'Juan',
+      cobro_tipo_persona: 'natural',
+      cobro_documento: '111',
+      cobro_email: 'juan@test.com',
+      deudores: [
+        { nombre: 'Juan', tipo_persona: 'natural', documento: '111', emails: ['juan@test.com'] },
+        { nombre: 'María', tipo_persona: 'natural', documento: '222', emails: ['maria@test.com'] },
+      ],
+    })).toBe('Juan +1');
+    expect(service.formatDeudorEmailCorto({
+      cobro_nombre: 'Juan',
+      cobro_tipo_persona: 'natural',
+      cobro_documento: '111',
+      cobro_email: 'juan@test.com',
+      deudores: [
+        { nombre: 'Juan', tipo_persona: 'natural', documento: '111', emails: ['juan@test.com', 'juan2@test.com'] },
+        { nombre: 'María', tipo_persona: 'natural', documento: '222', emails: ['maria@test.com'] },
+      ],
+    })).toBe('juan@test.com +2');
   });
 
   it('should format invalid currency values as 0 COP', () => {
@@ -467,6 +544,8 @@ describe('DataService', () => {
     httpMock.expectOne(apiUrl(`/propiedades/${propiedad.id}/historial`)).flush([pago]);
     await loadHistorialP;
 
+    // Simula datos legacy sin lock (el load habría fijado el valor inflado).
+    globalThis.localStorage.removeItem(`legal.saldoInicial.${propiedad.id}`);
     expect(service.getTotalCobradoParaPropiedad(loaded)).toBe(100000);
     expect(service.getDeudaActualParaPropiedad(loaded)).toBe(70000);
   });
@@ -506,6 +585,7 @@ describe('DataService', () => {
     httpMock.expectOne(apiUrl(`/propiedades/${propiedad.id}/historial`)).flush([pago]);
     await loadHistorialP;
 
+    globalThis.localStorage.removeItem(`legal.saldoInicial.${propiedad.id}`);
     expect(service.getTotalCobradoParaPropiedad(loaded)).toBe(100000);
     expect(service.getDeudaActualParaPropiedad(loaded)).toBe(70000);
   });
@@ -635,6 +715,141 @@ describe('DataService', () => {
     expect(service.getGestionesByPropiedad(propiedadId)).toEqual([]);
   });
 
+  it('updatePropiedad actualiza el saldo inicial y recalcula la deuda', async () => {
+    const propiedad: Propiedad = {
+      id: 'prop-edit-saldo',
+      cliente_id: 'cliente-1',
+      tipo_propiedad: 'apartamento',
+      identificador: 'Apto Edit',
+      direccion: 'Calle Edit',
+      notas: '',
+      ...sampleCobroPropiedad,
+      saldo_inicial: 100000,
+      monto_a_la_fecha: 100000,
+      created_at: '2026-01-01T00:00:00.000Z',
+    };
+    const pago: HistorialPago = {
+      id: 'hist-edit-saldo',
+      propiedad_id: propiedad.id,
+      periodo: '2026-01',
+      concepto: 'administracion',
+      valor_cobrado: 0,
+      valor_pagado: 30000,
+      fecha_pago: '2026-01-10',
+      estado_pago: 'parcial',
+      monto_a_la_fecha: 70000,
+      observaciones: '',
+      created_at: '2026-01-10T00:00:00.000Z',
+    };
+
+    service['propiedadesSignal'].set([propiedad]);
+    service['historialByPropiedadSignal'].set({ [propiedad.id]: [pago] });
+    expect(service.getDeudaActualParaPropiedad(propiedad)).toBe(70000);
+
+    const updateP = service.updatePropiedad(propiedad.id, { saldo_inicial: 80000 });
+    const reqPatch = httpMock.expectOne(apiUrl(`/propiedades/${propiedad.id}`));
+    expect(reqPatch.request.method).toBe('PATCH');
+    expect(reqPatch.request.body).toEqual({ saldo_inicial: 80000 });
+    reqPatch.flush({ ...propiedad, saldo_inicial: 80000, monto_a_la_fecha: 50000 });
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+    const reqReload = httpMock.expectOne(apiUrl(`/clientes/${propiedad.cliente_id}/propiedades`));
+    reqReload.flush([{ ...propiedad, saldo_inicial: 80000, monto_a_la_fecha: 50000 }]);
+    const updated = await updateP;
+
+    expect(updated.saldo_inicial).toBe(80000);
+    expect(service.getTotalCobradoParaPropiedad(updated)).toBe(80000);
+    expect(service.getDeudaActualParaPropiedad(updated)).toBe(50000);
+  });
+
+  it('createPropiedad envía deudores y normaliza espejo cobro_*', async () => {
+    const deudores = [
+      {
+        nombre: 'Juan',
+        tipo_persona: 'natural' as const,
+        documento: '111',
+        emails: ['juan@test.com', 'juan2@test.com'],
+      },
+      {
+        nombre: 'María',
+        tipo_persona: 'natural' as const,
+        documento: '222',
+        emails: ['maria@test.com'],
+      },
+    ];
+    const payload = {
+      cliente_id: 'cliente-1',
+      tipo_propiedad: 'apartamento' as const,
+      identificador: 'Apto Multi',
+      direccion: 'Calle 2',
+      notas: '',
+      saldo_inicial: 50000,
+      deudores,
+      cobro_nombre: 'Juan',
+      cobro_tipo_persona: 'natural' as const,
+      cobro_documento: '111',
+      cobro_email: 'juan@test.com',
+    };
+
+    const createP = service.createPropiedad(payload);
+    const req = httpMock.expectOne(apiUrl('/propiedades'));
+    expect(req.request.method).toBe('POST');
+    expect(req.request.body.deudores).toEqual(deudores);
+    expect(req.request.body.cobro_email).toBe('juan@test.com');
+
+    // Backend legacy: solo responde cobro_* sin deudores.
+    req.flush({
+      id: 'prop-multi',
+      ...payload,
+      deudores: undefined,
+      monto_a_la_fecha: 50000,
+      created_at: '2026-01-01T00:00:00.000Z',
+    });
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    const reqReload = httpMock.expectOne(apiUrl('/clientes/cliente-1/propiedades'));
+    reqReload.flush([
+      {
+        id: 'prop-multi',
+        ...payload,
+        deudores,
+        monto_a_la_fecha: 50000,
+        created_at: '2026-01-01T00:00:00.000Z',
+      },
+    ]);
+    const created = await createP;
+
+    expect(created.deudores).toHaveLength(2);
+    expect(created.cobro_email).toBe('juan@test.com');
+    expect(created.deudores?.[0].emails).toContain('juan2@test.com');
+  });
+
+  it('loadPropiedades sintetiza deudores desde cobro_* legacy', async () => {
+    const loadP = service.loadPropiedades();
+    const req = httpMock.expectOne(apiUrl('/propiedades'));
+    req.flush([
+      {
+        id: 'prop-legacy',
+        cliente_id: 'c-1',
+        tipo_propiedad: 'casa',
+        identificador: 'Casa 1',
+        direccion: 'Calle',
+        notas: '',
+        ...sampleCobroPropiedad,
+        monto_a_la_fecha: 10,
+        created_at: '2026-01-01T00:00:00.000Z',
+      },
+    ]);
+    const items = await loadP;
+    expect(items[0].deudores).toEqual([
+      {
+        nombre: 'Contacto Cobro',
+        tipo_persona: 'natural',
+        documento: '123456789',
+        emails: ['cobro@test.com'],
+      },
+    ]);
+  });
+
   it('sendPaymentReminderEmail posts propiedad_id y cuerpo al endpoint de recordatorios', async () => {
     const propiedadId = '11111111-1111-1111-1111-111111111111';
     const propiedad: Propiedad = {
@@ -667,16 +882,68 @@ describe('DataService', () => {
       id: 'rem-1',
       propiedad_id: propiedadId,
       cliente_email: 'cliente@example.com',
+      extra_recipients: ['cc@example.com'],
       subject: 'Recordatorio de pago - APT-101',
+      body_html: payload.body_html,
+      body_text: payload.body_text,
       status: 'sent',
       provider_id: '<msg@test>',
       error_message: null,
       sent_at: '2026-05-21T12:00:00.000Z',
       created_at: '2026-05-21T12:00:00.000Z',
+      gestion_id: 'ges-1',
     });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    httpMock.expectOne(apiUrl(`/propiedades/${propiedadId}/gestiones`)).flush([]);
     const result = await sendP;
     expect(result.status).toBe('sent');
     expect(result.cliente_email).toBe('cliente@example.com');
+    expect(result.gestion_id).toBe('ges-1');
+  });
+
+  it('loadPaymentRemindersByPropiedad y getPaymentReminderById consultan endpoints de recordatorios', async () => {
+    const propiedadId = 'prop-rem-1';
+    const reminderId = 'rem-detail-1';
+    const listItem = {
+      id: reminderId,
+      propiedad_id: propiedadId,
+      cliente_email: 'a@test.com',
+      subject: 'Asunto',
+      status: 'sent',
+      provider_id: null,
+      error_message: null,
+      sent_at: '2026-07-23T15:00:00.000Z',
+      created_at: '2026-07-23T15:00:00.000Z',
+      gestion_id: 'g1',
+    };
+    const loadP = service.loadPaymentRemindersByPropiedad(propiedadId);
+    const listReq = httpMock.expectOne(apiUrl(`/propiedades/${propiedadId}/payment-reminders`));
+    expect(listReq.request.method).toBe('GET');
+    listReq.flush([listItem]);
+    const listed = await loadP;
+    expect(listed).toEqual([listItem]);
+    expect(service.getPaymentRemindersByPropiedad(propiedadId)[0].id).toBe(reminderId);
+
+    const detailP = service.getPaymentReminderById(reminderId);
+    const detailReq = httpMock.expectOne(apiUrl(`/payment-reminders/${reminderId}`));
+    expect(detailReq.request.method).toBe('GET');
+    detailReq.flush({
+      ...listItem,
+      body_html: '<p>Hola</p>',
+      body_text: 'Hola',
+      extra_recipients: ['b@test.com'],
+    });
+    const detail = await detailP;
+    expect(detail.body_text).toBe('Hola');
+    expect(detail.extra_recipients).toEqual(['b@test.com']);
+  });
+
+  it('isGestionEmailReminder detecta origen email_reminder', () => {
+    expect(
+      service.isGestionEmailReminder({ origen: 'email_reminder', email_reminder_id: 'r1' })
+    ).toBe(true);
+    expect(service.isGestionEmailReminder({ origen: 'manual', email_reminder_id: null })).toBe(false);
+    expect(service.isGestionEmailReminder({ origen: undefined, email_reminder_id: 'r2' })).toBe(true);
   });
 
 });

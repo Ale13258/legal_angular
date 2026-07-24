@@ -22,6 +22,15 @@ export type TipoPropiedad =
   | 'parqueadero'
   | 'otro';
 
+/** Deudor/propietario a cobrar en una unidad. Puede tener varios correos. */
+export interface DeudorCobro {
+  nombre: string;
+  tipo_persona: TipoPersona;
+  documento: string;
+  /** Al menos un correo; el primero es el principal del deudor. */
+  emails: string[];
+}
+
 export interface Propiedad {
   id: string;
   cliente_id: string;
@@ -29,15 +38,20 @@ export interface Propiedad {
   identificador: string;
   direccion: string;
   notas: string;
-  /** Valor original registrado al crear la propiedad. */
+  /** Valor base de la deuda; editable para corregir inconsistencias. */
   saldo_inicial?: number | null;
   monto_a_la_fecha: number;
   created_at: string;
-  /** Persona a quien se cobra esta unidad. */
+  /**
+   * Fuente de verdad de deudores de la unidad (mín. 1).
+   * Si el API solo envía `cobro_*`, el cliente lo sintetiza.
+   */
+  deudores?: DeudorCobro[];
+  /** Espejo de `deudores[0]` para retrocompatibilidad. */
   cobro_nombre: string;
   cobro_tipo_persona: TipoPersona;
   cobro_documento: string;
-  /** Correo al que se envían notificaciones de cobro de esta propiedad. */
+  /** Espejo de `deudores[0].emails[0]` para retrocompatibilidad. */
   cobro_email: string;
   /**
    * Días de mora agregados por unidad. El backend la calcula al persistir historial:
@@ -93,6 +107,8 @@ export interface Cuenta {
   created_at: string;
 }
 
+export type GestionOrigen = 'manual' | 'email_reminder';
+
 export interface Gestion {
   id: string;
   propiedad_id: string;
@@ -100,6 +116,10 @@ export interface Gestion {
   estado: string;
   descripcion: string;
   created_at: string;
+  /** Origen de la gestión; ausente o `manual` = editable. */
+  origen?: GestionOrigen | string;
+  /** FK al recordatorio cuando `origen === 'email_reminder'`. */
+  email_reminder_id?: string | null;
 }
 
 export interface EstadoCuentaFile {
@@ -119,15 +139,21 @@ export interface EstadoCuentaFileMeta extends Omit<EstadoCuentaFile, 'propiedad_
 
 export type PaymentReminderEmailStatus = 'queued' | 'sent' | 'failed';
 
-/** Registro devuelto por POST /payment-reminders/email/send */
+/** Registro de recordatorio (POST send / GET list / GET detail). */
 export interface PaymentReminderEmailRecord {
   id: string;
   propiedad_id: string;
+  /** Destinatario principal (un solo email; no CSV). */
   cliente_email: string;
+  extra_recipients?: string[];
   subject: string;
+  body_html?: string;
+  body_text?: string;
   status: PaymentReminderEmailStatus | string;
   provider_id: string | null;
   error_message: string | null;
   sent_at: string | null;
   created_at: string;
+  /** Gestión creada al `sent`; null si queued/failed. */
+  gestion_id?: string | null;
 }

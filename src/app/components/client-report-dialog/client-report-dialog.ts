@@ -81,7 +81,7 @@ import {
           <div>
             <h3 class="text-sm font-semibold text-foreground mb-2">Por propiedad (unidad)</h3>
             <p class="text-xs text-muted-foreground mb-2">
-              Deudor actualizado por unidad. Pasa el cursor sobre Deudor para ver documento y correo.
+              Deudor actualizado por unidad. Pasa el cursor sobre Deudor para ver todos los deudores, documentos y correos.
             </p>
             <div class="overflow-x-auto rounded-xl border border-border">
               <table class="w-full min-w-[52rem] text-sm">
