@@ -1,6 +1,6 @@
 import { Component, computed, effect, input, output, signal } from '@angular/core';
 import { DataService } from '../../core/services/data.service';
-import type { HistorialPago, Propiedad } from '../../core/models';
+import type { HistorialPago, Cuenta } from '../../core/models';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
@@ -54,7 +54,7 @@ import {
           <div class="text-sm text-muted-foreground space-y-1">
             <p><strong class="text-foreground">Fecha:</strong> {{ fecha }}</p>
             <p><strong class="text-foreground">Cliente:</strong> {{ clienteNombre() }}</p>
-            <p><strong class="text-foreground">Propiedad:</strong> {{ propiedad().identificador }} – {{ propiedad().direccion }}</p>
+            <p><strong class="text-foreground">Cuenta:</strong> {{ cuenta().identificador }} – {{ cuenta().direccion }}</p>
           </div>
 
         
@@ -163,7 +163,7 @@ import {
 })
 export class ReportPreviewDialog {
   open = input<boolean>(true);
-  propiedad = input.required<Propiedad>();
+  cuenta = input.required<Cuenta>();
   openChange = output<boolean>();
 
   titulo = signal('');
@@ -176,36 +176,36 @@ export class ReportPreviewDialog {
   });
 
   historial = computed(() =>
-    this.data.getHistorialByPropiedad(this.propiedad().id)
+    this.data.getHistorialByCuenta(this.cuenta().id)
   );
   clienteNombre = computed(() => {
-    const cl = this.data.getClienteById(this.propiedad().cliente_id);
+    const cl = this.data.getClienteById(this.cuenta().cliente_id);
     return cl?.nombre ?? '';
   });
-  totalCobrado = computed(() => this.data.getTotalCobradoParaPropiedad(this.propiedad()));
+  totalCobrado = computed(() => this.data.getTotalCobradoParaCuenta(this.cuenta()));
   totalPagado = computed(() =>
     this.historial().reduce((s, h) => s + this.toNumber(h.valor_pagado), 0)
   );
-  saldo = computed(() => this.data.getDeudaActualParaPropiedad(this.propiedad()));
+  saldo = computed(() => this.data.getDeudaActualParaCuenta(this.cuenta()));
 
-  resumenCobroUnidad = computed(() => this.data.getResumenMoraCobroParaPropiedad(this.propiedad()));
+  resumenCobroUnidad = computed(() => this.data.getResumenMoraCobroParaCuenta(this.cuenta()));
 
-  private lastSyncedPropiedadKey: string | null = null;
+  private lastSyncedCuentaKey: string | null = null;
 
   constructor(protected data: DataService) {
     effect(() => {
       if (!this.open()) {
-        this.lastSyncedPropiedadKey = null;
+        this.lastSyncedCuentaKey = null;
         return;
       }
-      const p = this.propiedad();
+      const p = this.cuenta();
       const key = p.id;
-      if (this.lastSyncedPropiedadKey === key) return;
-      this.lastSyncedPropiedadKey = key;
+      if (this.lastSyncedCuentaKey === key) return;
+      this.lastSyncedCuentaKey = key;
 
       if (p.identificador) this.titulo.set(`Informe de Cartera - ${p.identificador}`);
       // Desde la ficha del cliente no se precarga el historial; sin esto el informe solo refleja deuda y la tabla queda vacía.
-      void this.data.loadHistorialByPropiedad(p.id);
+      void this.data.loadHistorialByCuenta(p.id);
     });
   }
 
@@ -215,11 +215,11 @@ export class ReportPreviewDialog {
   }
 
   deudaHistorial(h: HistorialPago): number {
-    return this.data.getDeudaParaHistorialPago(this.propiedad(), h);
+    return this.data.getDeudaParaHistorialPago(this.cuenta(), h);
   }
 
   downloadPdf(): void {
-    const p = this.propiedad();
+    const p = this.cuenta();
     const tituloDoc = this.titulo() || `Informe de Cartera — ${p.identificador}`;
     const doc = new jsPDF();
     doc.setFontSize(16);
@@ -227,7 +227,7 @@ export class ReportPreviewDialog {
     doc.setFontSize(10);
     doc.text(`Fecha: ${this.fecha}`, 14, 28);
     doc.text(`Cliente: ${this.clienteNombre()}`, 14, 34);
-    doc.text(`Propiedad: ${p.identificador} — ${p.direccion}`, 14, 40);
+    doc.text(`Cuenta: ${p.identificador} — ${p.direccion}`, 14, 40);
     doc.setFontSize(11);
     doc.text('Resumen Financiero', 14, 52);
     doc.setFontSize(10);
@@ -300,7 +300,7 @@ export class ReportPreviewDialog {
   }
 
   downloadExcel(): void {
-    const p = this.propiedad();
+    const p = this.cuenta();
     const tituloDoc = this.titulo() || `Informe de Cartera — ${p.identificador}`;
     const historial = this.historial();
     const notas = this.notasExtra()?.trim();
@@ -308,7 +308,7 @@ export class ReportPreviewDialog {
       [tituloDoc],
       [`Fecha: ${this.fecha}`],
       [`Cliente: ${this.clienteNombre()}`],
-      [`Propiedad: ${p.identificador} — ${p.direccion}`],
+      [`Cuenta: ${p.identificador} — ${p.direccion}`],
       [],
       ['Total Cobrado', this.data.formatCurrency(this.totalCobrado())],
       ['Total Pagado', this.data.formatCurrency(this.totalPagado())],
@@ -362,7 +362,7 @@ export class ReportPreviewDialog {
   }
 
   async downloadWord(): Promise<void> {
-    const p = this.propiedad();
+    const p = this.cuenta();
     const tituloDoc = this.titulo() || `Informe de Cartera — ${p.identificador}`;
     const historial = this.historial();
     const notas = this.notasExtra()?.trim();
@@ -372,7 +372,7 @@ export class ReportPreviewDialog {
       buildHeading(tituloDoc),
       buildParagraph(`Fecha: ${this.fecha}`),
       buildParagraph(`Cliente: ${this.clienteNombre()}`),
-      buildParagraph(`Propiedad: ${p.identificador} — ${p.direccion}`),
+      buildParagraph(`Cuenta: ${p.identificador} — ${p.direccion}`),
       buildSubheading('Resumen Financiero'),
       ...buildKeyValueLines([
         ['Total Cobrado', this.data.formatCurrency(this.totalCobrado())],

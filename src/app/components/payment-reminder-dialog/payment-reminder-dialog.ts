@@ -2,14 +2,14 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { Component, computed, effect, ElementRef, inject, input, output, signal, viewChild } from '@angular/core';
 import { DomSanitizer, type SafeHtml } from '@angular/platform-browser';
 import { DataService, type PaymentReminderEmailAttachmentPayload } from '../../core/services/data.service';
-import type { Propiedad } from '../../core/models';
+import type { Cuenta } from '../../core/models';
 import {
   buildCustomReminderBodyHtml,
   buildCustomReminderBodyPlain,
   formatLegalParagraphInnerHtml,
   type LegalReminderBodyContext,
 } from '../../core/utils/payment-reminder-legal-body';
-import { collectPropiedadEmails } from '../../core/utils/normalize-propiedad-deudores';
+import { collectCuentaEmails } from '../../core/utils/normalize-cuenta-deudores';
 
 const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
 const MAX_ATTACHMENTS = 5;
@@ -238,8 +238,8 @@ type ReminderAttachment = {
           <!-- Datos de la propiedad -->
           <div class="rounded-xl bg-muted/50 p-4">
             <h3 class="text-sm font-semibold text-foreground mb-3">DATOS DE LA PROPIEDAD</h3>
-            <p class="font-medium text-foreground">Propiedad: {{ propiedad().identificador }}</p>
-            <p class="font-medium text-foreground">Dirección: {{ propiedad().direccion }}</p>
+            <p class="font-medium text-foreground">Propiedad: {{ cuenta().identificador }}</p>
+            <p class="font-medium text-foreground">Dirección: {{ cuenta().direccion }}</p>
             <p class="font-medium text-foreground">Contacto de cobro: {{ nombreDestinatario() }}</p>
           </div>
 
@@ -252,7 +252,7 @@ type ReminderAttachment = {
           <div class="rounded-xl bg-muted/50 p-4">
             <h3 class="text-sm font-semibold text-foreground mb-3">Resumen</h3>
             <p class="text-sm text-foreground">Contacto de cobro: {{ nombreDestinatario() }} - {{ destinatario() }}</p>
-            <p class="text-sm text-foreground">Propiedad: {{ propiedad().identificador }}</p>
+            <p class="text-sm text-foreground">Propiedad: {{ cuenta().identificador }}</p>
             <p class="text-sm font-bold text-destructive mt-2">Monto pendiente: {{ data.formatCurrency(montoPendiente()) }}</p>
           </div>
 
@@ -309,7 +309,7 @@ type ReminderAttachment = {
 })
 export class PaymentReminderDialog {
   open = input<boolean>(true);
-  propiedad = input.required<Propiedad>();
+  cuenta = input.required<Cuenta>();
   openChange = output<boolean>();
   /** Emitido cuando el backend confirma `status === 'sent'` (la gestión la crea el servidor). */
   sent = output<void>();
@@ -337,16 +337,16 @@ export class PaymentReminderDialog {
   });
   footerYear = new Date().getFullYear();
 
-  nombreDestinatario = computed(() => this.propiedad().cobro_nombre?.trim() ?? '');
+  nombreDestinatario = computed(() => this.cuenta().cobro_nombre?.trim() ?? '');
   nombreCopropiedad = computed(() => {
-    const p = this.propiedad();
+    const p = this.cuenta();
     const cliente = this.data.getClienteById(p.cliente_id);
     return cliente?.nombre?.trim() || p.direccion?.trim() || '—';
   });
   parrafosPersonalizados = computed(() => buildCustomReminderBodyPlain(this.cuerpoPersonalizado()));
   /** Misma lógica que "Deuda a la fecha" en el detalle: saldo − pagos (se actualiza con el historial). */
   montoPendiente = computed(() =>
-    this.data.getDeudaActualParaPropiedad(this.propiedad())
+    this.data.getDeudaActualParaCuenta(this.cuenta())
   );
   puedeEnviar = computed(() => {
     const email = this.destinatario().trim();
@@ -354,21 +354,21 @@ export class PaymentReminderDialog {
     return Boolean(email) && Boolean(subject) && this.montoPendiente() > 0;
   });
 
-  /** Evita reiniciar el borrador mientras el usuario escribe si la propiedad se refresca en segundo plano. */
-  private lastSyncedPropiedadKey: string | null = null;
+  /** Evita reiniciar el borrador mientras el usuario escribe si la cuenta se refresca en segundo plano. */
+  private lastSyncedCuentaKey: string | null = null;
 
   constructor(protected data: DataService) {
     effect(() => {
       if (!this.open()) {
-        this.lastSyncedPropiedadKey = null;
+        this.lastSyncedCuentaKey = null;
         return;
       }
-      const p = this.propiedad();
+      const p = this.cuenta();
       const key = p.id;
-      if (this.lastSyncedPropiedadKey === key) return;
-      this.lastSyncedPropiedadKey = key;
+      if (this.lastSyncedCuentaKey === key) return;
+      this.lastSyncedCuentaKey = key;
 
-      const emails = collectPropiedadEmails(p);
+      const emails = collectCuentaEmails(p);
       const primary = emails[0] ?? p.cobro_email?.trim() ?? '';
       const extras = emails.slice(1, 1 + MAX_EXTRA_RECIPIENTS);
       this.destinatario.set(primary);
@@ -467,7 +467,7 @@ export class PaymentReminderDialog {
     this.sending.set(true);
     try {
       const extras = this.parseDestinatariosExtra();
-      const result = await this.data.sendPaymentReminderEmail(this.propiedad().id, {
+      const result = await this.data.sendPaymentReminderEmail(this.cuenta().id, {
         subject: this.asunto().trim(),
         extra_recipients: extras.length ? extras : undefined,
         body_html: this.generarHtml(),
@@ -498,9 +498,9 @@ export class PaymentReminderDialog {
   }
 
   private legalBodyContext(): LegalReminderBodyContext {
-    const p = this.propiedad();
+    const p = this.cuenta();
     return {
-      tipoUnidad: this.data.tipoPropiedadLabels[p.tipo_propiedad] ?? 'UNIDAD',
+      tipoUnidad: this.data.tipoCuentaLabels[p.tipo_cuenta] ?? 'UNIDAD',
       identificador: p.identificador,
       copropiedad: this.nombreCopropiedad(),
       montoPendiente: this.montoPendiente(),
@@ -631,7 +631,7 @@ export class PaymentReminderDialog {
   }
 
   private generarHtml(): string {
-    const p = this.propiedad();
+    const p = this.cuenta();
     const cliente = this.escapeHtmlLite(this.nombreDestinatario());
     const identificador = this.escapeHtmlLite(p.identificador);
     const fecha = this.escapeHtmlLite(this.fecha);

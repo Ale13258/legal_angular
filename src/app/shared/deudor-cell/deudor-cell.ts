@@ -1,8 +1,8 @@
 import { CdkConnectedOverlay, CdkOverlayOrigin, type ConnectedPosition } from '@angular/cdk/overlay';
 import { Component, Input, inject } from '@angular/core';
-import type { DeudorCobro, Propiedad } from '../../core/models';
+import type { DeudorCobro, Cuenta } from '../../core/models';
 import { DataService } from '../../core/services/data.service';
-import { resolveDeudores } from '../../core/utils/normalize-propiedad-deudores';
+import { resolveDeudores } from '../../core/utils/normalize-cuenta-deudores';
 
 @Component({
   selector: 'app-deudor-cell',
@@ -19,7 +19,7 @@ import { resolveDeudores } from '../../core/utils/normalize-propiedad-deudores';
       (focus)="open = true"
       (blur)="open = false"
     >
-      <div class="truncate font-medium text-foreground">{{ data.formatDeudorCorto(propiedad) }}</div>
+      <div class="truncate font-medium text-foreground">{{ data.formatDeudorCorto(cuenta) }}</div>
       @if (emailCorto) {
         <div class="text-xs text-muted-foreground mt-0.5 truncate">{{ emailCorto }}</div>
       }
@@ -106,8 +106,8 @@ import { resolveDeudores } from '../../core/utils/normalize-propiedad-deudores';
 export class DeudorCell {
   protected readonly data = inject(DataService);
 
-  @Input({ required: true }) propiedad!: Pick<
-    Propiedad,
+  @Input({ required: true }) cuenta!: Pick<
+    Cuenta,
     'cobro_nombre' | 'cobro_tipo_persona' | 'cobro_documento' | 'cobro_email' | 'deudores'
   >;
 
@@ -145,10 +145,10 @@ export class DeudorCell {
   ];
 
   get deudores(): DeudorCobro[] {
-    return resolveDeudores(this.propiedad);
+    return resolveDeudores(this.cuenta);
   }
 
   get emailCorto(): string {
-    return this.data.formatDeudorEmailCorto(this.propiedad);
+    return this.data.formatDeudorEmailCorto(this.cuenta);
   }
 }

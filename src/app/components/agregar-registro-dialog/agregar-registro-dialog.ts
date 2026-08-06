@@ -1,6 +1,6 @@
 import { Component, effect, input, output, signal } from '@angular/core';
 import { DataService } from '../../core/services/data.service';
-import type { HistorialPago, Propiedad } from '../../core/models';
+import type { HistorialPago, Cuenta } from '../../core/models';
 import type { ConceptoPago, EstadoPago } from '../../core/models';
 
 type FechaFieldKey = 'periodo' | 'fecha_pago';
@@ -175,7 +175,7 @@ type FechaFieldKey = 'periodo' | 'fecha_pago';
 })
 export class AgregarRegistroDialog {
   open = input<boolean>(true);
-  propiedad = input.required<Propiedad>();
+  cuenta = input.required<Cuenta>();
   historial = input<HistorialPago | null>(null);
   registroFormNonce = input(0);
   openChange = output<boolean>();
@@ -359,7 +359,7 @@ export class AgregarRegistroDialog {
   async guardar(): Promise<void> {
     if (!this.validarFechas()) return;
 
-    const propiedadId = this.propiedad().id;
+    const cuentaId = this.cuenta().id;
     const fechaRaw = this.fechaPago().trim();
     const payload = {
       periodo: this.periodo().trim(),
@@ -376,9 +376,9 @@ export class AgregarRegistroDialog {
     const editing = this.historial();
     try {
       if (editing) {
-        await this.data.updateHistorialPago(propiedadId, editing.id, payload);
+        await this.data.updateHistorialPago(cuentaId, editing.id, payload);
       } else {
-        await this.data.addHistorialPago(propiedadId, payload);
+        await this.data.addHistorialPago(cuentaId, payload);
       }
       this.saved.emit();
       this.openChange.emit(false);

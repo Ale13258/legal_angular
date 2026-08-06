@@ -43,7 +43,7 @@ const WELCOME_FEATURES = [
             routerLink="/registro"
             class="nav-pill inline-flex items-center gap-2 rounded-xl border border-border bg-background px-5 py-2.5 font-medium text-sm text-foreground hover:bg-muted"
           >
-            Registrarse
+            Regístrate
           </a>
         </div>
       </header>
@@ -75,7 +75,7 @@ const WELCOME_FEATURES = [
               routerLink="/registro"
               class="nav-pill inline-flex items-center justify-center gap-2 rounded-xl border border-border bg-background px-6 py-3 font-medium text-foreground hover:bg-muted"
             >
-              Soy cliente — Registrarme
+              Regístrate
             </a>
           </div>
         </div>
@@ -114,7 +114,7 @@ const WELCOME_FEATURES = [
       <!-- Footer -->
       <footer class="border-t border-border py-4 shrink-0">
         <p class="text-center text-muted-foreground text-sm">
-          © 2026 LegalTech - Gestión de Cartera y Propiedad Horizontal
+          © 2026 LegalTech - Gestión de Cartera y Cuenta Horizontal
         </p>
       </footer>
     </div>

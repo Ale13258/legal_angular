@@ -10,7 +10,7 @@ import type { PaymentReminderEmailRecord } from '../../core/models';
     <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div class="fixed inset-0 bg-black/50" (click)="openChange.emit(false)"></div>
       <div
-        class="relative z-50 flex flex-col bg-card rounded-2xl shadow-lg border border-border w-full max-w-xl max-h-[90vh]"
+        class="relative z-50 flex flex-col bg-card rounded-2xl shadow-lg border border-border w-full max-w-2xl max-h-[90vh]"
         (click)="$event.stopPropagation()"
       >
         <div class="shrink-0 border-b border-border px-5 sm:px-6 py-4 flex items-start justify-between gap-3">
@@ -70,11 +70,20 @@ import type { PaymentReminderEmailRecord } from '../../core/models';
               <div class="flex items-center justify-between gap-2 mb-2">
                 <h3 class="text-sm font-semibold text-foreground">Mensaje</h3>
               </div>
-              <div
-                class="rounded-xl border border-border bg-background px-4 py-4 text-sm text-foreground leading-relaxed whitespace-pre-wrap break-words max-h-[42vh] overflow-y-auto"
-              >
-                {{ bodyPlain() }}
-              </div>
+              @if (htmlSrcdoc()) {
+                <iframe
+                  title="Cuerpo del correo"
+                  class="w-full min-h-[280px] h-[42vh] rounded-xl border border-border bg-white"
+                  [attr.srcdoc]="htmlSrcdoc()"
+                  sandbox=""
+                ></iframe>
+              } @else {
+                <div
+                  class="rounded-xl border border-border bg-background px-4 py-4 text-sm text-foreground leading-relaxed whitespace-pre-wrap break-words max-h-[42vh] overflow-y-auto"
+                >
+                  {{ bodyPlain() }}
+                </div>
+              }
             </div>
           }
         </div>
@@ -94,6 +103,7 @@ import type { PaymentReminderEmailRecord } from '../../core/models';
 })
 export class EmailReminderDetailDialog {
   open = input(true);
+  /** Id de la gestión para `GET /payment-reminders/:gestionId`. */
   reminderId = input.required<string>();
   openChange = output<boolean>();
 
@@ -116,15 +126,23 @@ export class EmailReminderDetailDialog {
     return this.record()?.status || '—';
   });
 
-  /** Preferimos texto plano: el HTML del correo usa CID y se ve roto en el navegador. */
+  /** HTML del correo para iframe `srcdoc` (aislado; sandbox sin scripts). */
+  readonly htmlSrcdoc = computed(() => {
+    const html = this.record()?.body_html?.trim();
+    if (!html) return null;
+    const previewHtml = this.rewriteCidImagesForPreview(html);
+    if (/<html[\s>]/i.test(previewHtml) || /<body[\s>]/i.test(previewHtml)) {
+      return previewHtml;
+    }
+    return `<!DOCTYPE html><html><head><meta charset="utf-8"><base target="_blank"><style>body{margin:16px;font:14px/1.5 system-ui,sans-serif;color:#111}img{max-width:100%;height:auto}</style></head><body>${previewHtml}</body></html>`;
+  });
+
   readonly bodyPlain = computed(() => {
     const r = this.record();
     if (!r) return '';
     const text = r.body_text?.trim();
     if (text) return text;
-    const html = r.body_html?.trim();
-    if (!html) return 'Sin contenido de mensaje.';
-    return this.htmlToPlain(html);
+    return 'Sin contenido de mensaje.';
   });
 
   constructor() {
@@ -135,39 +153,43 @@ export class EmailReminderDetailDialog {
     });
   }
 
-  private async load(reminderId: string): Promise<void> {
+  /**
+   * En el correo real las imágenes van como adjuntos MIME (`cid:…`).
+   * En el navegador eso no existe; las mapeamos a `/brand/*` para la vista previa.
+   */
+  private rewriteCidImagesForPreview(html: string): string {
+    const origin =
+      typeof globalThis.location?.origin === 'string' ? globalThis.location.origin : '';
+    const cidToAsset: Record<string, string> = {
+      'legaltech-logo@legaltech': `${origin}/brand/legaltech-logo.png`,
+      'icon-telefono@legaltech': `${origin}/brand/icon-telefono.png`,
+      'icon-email@legaltech': `${origin}/brand/icon-email.png`,
+      'icon-instagram@legaltech': `${origin}/brand/icon-instagram.png`,
+    };
+    let out = html;
+    for (const [cid, asset] of Object.entries(cidToAsset)) {
+      out = out.split(`cid:${cid}`).join(asset);
+    }
+    // Cualquier otro cid:… residual: ocultar imagen rota.
+    out = out.replace(
+      /<img\b([^>]*?)\bsrc=["']cid:[^"']+["']([^>]*)>/gi,
+      '<img$1src=""$2 style="display:none" aria-hidden="true">'
+    );
+    return out;
+  }
+
+  private async load(gestionId: string): Promise<void> {
     this.loading.set(true);
     this.error.set(null);
     this.record.set(null);
     try {
-      const detail = await this.data.getPaymentReminderById(reminderId);
+      const detail = await this.data.getPaymentReminderById(gestionId);
       this.record.set(detail);
     } catch (err) {
       this.error.set(this.extractErrorMessage(err));
     } finally {
       this.loading.set(false);
     }
-  }
-
-  private htmlToPlain(html: string): string {
-    const withBreaks = html
-      .replace(/<\s*br\s*\/?>/gi, '\n')
-      .replace(/<\/\s*p\s*>/gi, '\n\n')
-      .replace(/<\/\s*div\s*>/gi, '\n')
-      .replace(/<\/\s*tr\s*>/gi, '\n')
-      .replace(/<\/\s*li\s*>/gi, '\n');
-    const stripped = withBreaks.replace(/<[^>]+>/g, ' ');
-    return stripped
-      .replace(/&nbsp;/gi, ' ')
-      .replace(/&amp;/gi, '&')
-      .replace(/&lt;/gi, '<')
-      .replace(/&gt;/gi, '>')
-      .replace(/&quot;/gi, '"')
-      .replace(/&#39;/gi, "'")
-      .replace(/[ \t]+\n/g, '\n')
-      .replace(/\n{3,}/g, '\n\n')
-      .replace(/[ \t]{2,}/g, ' ')
-      .trim();
   }
 
   private extractErrorMessage(error: unknown): string {

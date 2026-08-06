@@ -1,13 +1,13 @@
 import { Component, computed, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
-import type { Propiedad } from '../../core/models';
+import type { Cuenta } from '../../core/models';
 import { DataService } from '../../core/services/data.service';
 import { DeudorCell } from '../../shared/deudor-cell/deudor-cell';
 import { StatusBadge } from '../../shared/status-badge/status-badge';
 import { fadeInUp, fadeInUpStagger } from '../../core/animations/animations';
 
 @Component({
-  selector: 'app-propiedades-page',
+  selector: 'app-cuentas-page',
   standalone: true,
   imports: [RouterLink, DeudorCell, StatusBadge],
   animations: [fadeInUp, fadeInUpStagger],
@@ -159,18 +159,18 @@ import { fadeInUp, fadeInUpStagger } from '../../core/animations/animations';
                   <tr
                     [@fadeInUpStagger]="{ value: '', params: { delay: i * 50, duration: 200, offset: 5, ease: 'ease-out' } }"
                     class="border-b border-border/40 last:border-0 hover:bg-muted/30 transition-colors cursor-pointer"
-                    (click)="navigateToPropiedad(prop.id)"
+                    (click)="navigateToCuenta(prop.id)"
                   >
                     <td class="px-5 sm:px-6 py-4 text-sm font-medium text-foreground">{{ prop.identificador }}</td>
                     <td class="px-5 sm:px-6 py-4 text-sm text-muted-foreground">{{ prop.direccion }}</td>
                     <td class="px-5 sm:px-6 py-4 text-sm text-muted-foreground">{{ prop.cliente?.nombre }}</td>
                     <td class="deudor-col px-5 sm:px-6 py-4 text-sm max-w-[12rem]" (click)="$event.stopPropagation()">
-                      <app-deudor-cell [propiedad]="prop" />
+                      <app-deudor-cell [cuenta]="prop" />
                     </td>
                     <td class="px-5 sm:px-6 py-4">
                       <app-status-badge
-                        [label]="data.tipoPropiedadLabels[prop.tipo_propiedad]"
-                        [variant]="prop.tipo_propiedad"
+                        [label]="data.tipoCuentaLabels[prop.tipo_cuenta]"
+                        [variant]="prop.tipo_cuenta"
                       />
                     </td>
                     <td
@@ -185,7 +185,7 @@ import { fadeInUp, fadeInUpStagger } from '../../core/animations/animations';
                       </div>
                     </td>
                     <td class="px-5 sm:px-6 py-4 text-right text-sm font-semibold tabular-nums text-foreground">
-                      {{ data.formatDeuda(data.getDeudaActualParaPropiedad(prop)) }}
+                      {{ data.formatDeuda(data.getDeudaActualParaCuenta(prop)) }}
                     </td>
                     <td class="px-5 sm:px-6 py-4 text-right">
                       <a
@@ -214,7 +214,7 @@ import { fadeInUp, fadeInUpStagger } from '../../core/animations/animations';
     </div>
   `,
 })
-export class PropiedadesPage {
+export class CuentasPage {
   readonly loading = signal(true);
   readonly error = signal<string | null>(null);
   search = signal('');
@@ -222,7 +222,7 @@ export class PropiedadesPage {
   filterMora = signal('todas');
 
   propiedadesConCliente = computed(() =>
-    this.data.mockPropiedades.map((p) => ({
+    this.data.mockCuentas.map((p) => ({
       ...p,
       cliente: this.data.getClienteById(p.cliente_id),
     }))
@@ -247,7 +247,7 @@ export class PropiedadesPage {
             d.documento?.toLowerCase().includes(s) ||
             d.emails.some((e) => e.toLowerCase().includes(s))
         );
-      const matchTipo = tip === 'todos' || p.tipo_propiedad === tip;
+      const matchTipo = tip === 'todos' || p.tipo_cuenta === tip;
       const diasMora = this.resumenCobro(p).edad_mora_dias;
       const n = Number.isFinite(Number(diasMora)) ? Math.max(0, Math.floor(Number(diasMora))) : null;
       const matchMora =
@@ -273,7 +273,7 @@ export class PropiedadesPage {
     this.loading.set(true);
     this.error.set(null);
     try {
-      await Promise.all([this.data.loadClientes(), this.data.loadPropiedades()]);
+      await Promise.all([this.data.loadClientes(), this.data.loadCuentas()]);
     } catch {
       this.error.set('No se pudieron cargar las propiedades.');
     } finally {
@@ -281,12 +281,12 @@ export class PropiedadesPage {
     }
   }
 
-  navigateToPropiedad(id: string): void {
+  navigateToCuenta(id: string): void {
     this.router.navigate(['/propiedades', id]);
   }
 
-  protected resumenCobro(p: Propiedad) {
-    return this.data.getResumenMoraCobroParaPropiedad(p);
+  protected resumenCobro(p: Cuenta) {
+    return this.data.getResumenMoraCobroParaCuenta(p);
   }
 
   protected toNumber(value: unknown): number {

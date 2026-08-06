@@ -1,5 +1,5 @@
 import { Component, effect, input, output, signal } from '@angular/core';
-import type { Gestion, Propiedad } from '../../core/models';
+import type { Gestion, Cuenta } from '../../core/models';
 
 @Component({
   selector: 'app-registrar-gestion-dialog',
@@ -10,7 +10,7 @@ import type { Gestion, Propiedad } from '../../core/models';
       <div class="relative z-50 bg-card rounded-2xl shadow-lg border border-border w-full max-w-md">
         <div class="flex items-center justify-between px-6 py-4 border-b border-border">
           <h2 class="font-display text-lg font-bold text-foreground">
-            {{ gestion() ? 'Editar Gestión de Cobro' : 'Registrar Gestión de Cobro' }}
+            {{ gestion() ? 'Editar trazabilidad de cobro' : 'Registrar trazabilidad de cobro' }}
           </h2>
           <button
             type="button"
@@ -52,7 +52,7 @@ import type { Gestion, Propiedad } from '../../core/models';
           </div>
 
           <div>
-            <label class="block text-sm font-medium text-foreground mb-1.5">Descripción de la gestión</label>
+            <label class="block text-sm font-medium text-foreground mb-1.5">Descripción</label>
             <textarea
               [value]="descripcion()"
               (input)="descripcion.set($any($event.target).value)"
@@ -75,7 +75,7 @@ import type { Gestion, Propiedad } from '../../core/models';
               class="flex-1 inline-flex items-center justify-center gap-2 rounded-xl bg-primary text-primary-foreground px-4 py-2.5 text-sm font-medium hover:opacity-90"
             >
               <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-              {{ gestion() ? 'Guardar cambios' : 'Guardar Gestión' }}
+              {{ gestion() ? 'Guardar cambios' : 'Guardar' }}
             </button>
           </div>
         </form>
@@ -85,7 +85,7 @@ import type { Gestion, Propiedad } from '../../core/models';
 })
 export class RegistrarGestionDialog {
   open = input<boolean>(true);
-  propiedad = input.required<Propiedad>();
+  cuenta = input.required<Cuenta>();
   gestion = input<Gestion | null>(null);
   /** Incrementado por el padre en cada apertura para hidratar el formulario. */
   gestionFormNonce = input(0);
@@ -121,8 +121,8 @@ export class RegistrarGestionDialog {
 
   private applyGestionToForm(g: Gestion): void {
     this.fecha.set(g.fecha?.trim().slice(0, 10) || this.fechaHoy());
-    this.estado.set(this.coerceEstado(g.estado));
-    this.descripcion.set(g.descripcion ?? '');
+    this.estado.set(this.coerceEstado(g.detalle?.estado ?? g.estado));
+    this.descripcion.set(g.detalle?.descripcion ?? g.descripcion ?? '');
   }
 
   private coerceEstado(v: unknown): string {

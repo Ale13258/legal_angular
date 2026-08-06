@@ -1,16 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import type { Propiedad } from '../models';
+import type { Cuenta } from '../models';
 import {
-  collectPropiedadEmails,
+  collectCuentaEmails,
   mirrorCobroFromDeudores,
-  normalizePropiedadDeudores,
+  normalizeCuentaDeudores,
   resolveDeudores,
-} from './normalize-propiedad-deudores';
+} from './normalize-cuenta-deudores';
 
-const basePropiedad = {
+const baseCuenta = {
   id: 'p-1',
   cliente_id: 'c-1',
-  tipo_propiedad: 'apartamento' as const,
+  tipo_cuenta: 'apartamento' as const,
   identificador: 'Apto 1',
   direccion: 'Calle 1',
   notas: '',
@@ -18,10 +18,10 @@ const basePropiedad = {
   created_at: '2026-01-01T00:00:00.000Z',
 };
 
-describe('normalize-propiedad-deudores', () => {
+describe('normalize-cuenta-deudores', () => {
   it('sintetiza deudores desde cobro_* legacy', () => {
     const p = {
-      ...basePropiedad,
+      ...baseCuenta,
       cobro_nombre: 'Ana Pérez',
       cobro_tipo_persona: 'natural' as const,
       cobro_documento: '123',
@@ -39,8 +39,8 @@ describe('normalize-propiedad-deudores', () => {
   });
 
   it('prioriza deudores[] y espeja cobro_* desde el primero', () => {
-    const normalized = normalizePropiedadDeudores({
-      ...basePropiedad,
+    const normalized = normalizeCuentaDeudores({
+      ...baseCuenta,
       cobro_nombre: 'Viejo',
       cobro_tipo_persona: 'juridica',
       cobro_documento: '999',
@@ -59,7 +59,7 @@ describe('normalize-propiedad-deudores', () => {
           emails: ['maria@test.com'],
         },
       ],
-    } as Propiedad);
+    } as Cuenta);
 
     expect(normalized.cobro_nombre).toBe('Juan');
     expect(normalized.cobro_documento).toBe('111');
@@ -69,7 +69,7 @@ describe('normalize-propiedad-deudores', () => {
   });
 
   it('deduplica emails por deudor y al aplanar', () => {
-    const emails = collectPropiedadEmails({
+    const emails = collectCuentaEmails({
       cobro_nombre: '',
       cobro_tipo_persona: 'natural',
       cobro_documento: '',

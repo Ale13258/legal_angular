@@ -4,7 +4,7 @@ import { etiquetaCortaParaDiasMora, etiquetaParaDiasMora } from '../mora-etapas'
 import { ETAPA_PROCESO_LABELS, etiquetaEtapaProceso } from '../proceso-etapas';
 import { HttpService } from '../http/http.service';
 import { formatMontoColombianoCurrency } from '../utils/format-monto-colombiano';
-import { normalizePropiedadDeudores, resolveDeudores } from '../utils/normalize-propiedad-deudores';
+import { normalizeCuentaDeudores, resolveDeudores } from '../utils/normalize-cuenta-deudores';
 import type {
   Cliente,
   ConceptoPago,
@@ -12,14 +12,15 @@ import type {
   DeudorCobro,
   EstadoCuentaFile,
   EstadoCuentaFileMeta,
-  EstadoCuenta,
+  EstadoProcesoLegal,
   EstadoPago,
   EtapaProceso,
   Gestion,
   HistorialPago,
   PaymentReminderEmailRecord,
-  Propiedad,
+  ProcesoLegal,
   TipoCuenta,
+  TipoProcesoLegal,
 } from '../models';
 
 export type AddHistorialPayload = {
@@ -32,15 +33,15 @@ export type AddHistorialPayload = {
   observaciones: string;
 };
 
-export type CreatePropiedadPayload = {
+export type CreateCuentaPayload = {
   cliente_id: string;
-  tipo_propiedad: Propiedad['tipo_propiedad'];
+  tipo_cuenta: Cuenta['tipo_cuenta'];
   identificador: string;
   direccion: string;
   notas: string;
   saldo_inicial: number;
   cobro_nombre: string;
-  cobro_tipo_persona: Propiedad['cobro_tipo_persona'];
+  cobro_tipo_persona: Cuenta['cobro_tipo_persona'];
   cobro_documento: string;
   cobro_email: string;
   /** Fuente de verdad; el espejo `cobro_*` debe coincidir con `deudores[0]`. */
@@ -49,39 +50,39 @@ export type CreatePropiedadPayload = {
   fecha_inicio_cobro?: string | null;
 };
 
-export type UpdatePropiedadPayload = {
-  tipo_propiedad?: Propiedad['tipo_propiedad'];
+export type UpdateCuentaPayload = {
+  tipo_cuenta?: Cuenta['tipo_cuenta'];
   identificador?: string;
   direccion?: string;
   notas?: string;
   saldo_inicial?: number;
   cobro_nombre?: string;
-  cobro_tipo_persona?: Propiedad['cobro_tipo_persona'];
+  cobro_tipo_persona?: Cuenta['cobro_tipo_persona'];
   cobro_documento?: string;
   cobro_email?: string;
   deudores?: DeudorCobro[];
   fecha_inicio_cobro?: string | null;
 };
 
-export type CreateCuentaPayload = {
+export type CreateProcesoLegalPayload = {
   cliente_id: string;
-  propiedad_id?: string;
+  cuenta_id?: string;
   numero_cuenta: string;
-  tipo: TipoCuenta;
-  estado: EstadoCuenta;
+  tipo: TipoProcesoLegal;
+  estado: EstadoProcesoLegal;
   etapa_proceso: EtapaProceso;
 };
 
-export type UpdateCuentaEstadoPayload = {
-  estado: EstadoCuenta;
+export type UpdateProcesoLegalEstadoPayload = {
+  estado: EstadoProcesoLegal;
 };
 
-export type UpdateCuentaPayload = {
+export type UpdateProcesoLegalPayload = {
   numero_cuenta: string;
-  tipo: TipoCuenta;
-  estado: EstadoCuenta;
+  tipo: TipoProcesoLegal;
+  estado: EstadoProcesoLegal;
   etapa_proceso: EtapaProceso;
-  propiedad_id?: string;
+  cuenta_id?: string;
 };
 
 export type UpdateClientePayload = Pick<
@@ -105,18 +106,19 @@ export type PaymentReminderEmailAttachmentPayload = {
 export class DataService {
   private readonly http = inject(HttpService);
   private readonly clientesSignal = signal<Cliente[]>([]);
-  private readonly propiedadesSignal = signal<Propiedad[]>([]);
   private readonly cuentasSignal = signal<Cuenta[]>([]);
-  private readonly historialByPropiedadSignal = signal<Record<string, HistorialPago[]>>({});
-  private readonly gestionesByPropiedadSignal = signal<Record<string, Gestion[]>>({});
-  private readonly paymentRemindersByPropiedadSignal = signal<
+  private readonly procesosLegalesSignal = signal<ProcesoLegal[]>([]);
+  private readonly historialByCuentaSignal = signal<Record<string, HistorialPago[]>>({});
+  private readonly gestionesByCuentaSignal = signal<Record<string, Gestion[]>>({});
+  private readonly paymentRemindersByCuentaSignal = signal<
     Record<string, PaymentReminderEmailRecord[]>
   >({});
-  private readonly estadoCuentaFilesByPropiedadSignal = signal<Record<string, EstadoCuentaFile[]>>({});
+  private readonly estadoCuentaFilesByCuentaSignal = signal<Record<string, EstadoCuentaFile[]>>({});
   private readonly metricsDashboardSignal = signal({
     total_cartera: 0,
     clientes_activos: 0,
     cuentas_activas: 0,
+    procesos_legales_activos: 0,
   });
   private readonly distribucionEstadosSignal = signal<Record<string, number>>({});
   private readonly evolucionSignal = signal<{ periodo: string; total: number }[]>([]);
@@ -133,12 +135,12 @@ export class DataService {
     pagado: 'Pagado',
     vencido: 'Vencido',
   };
-  readonly tipoCuentaLabels: Record<string, string> = {
+  readonly tipoProcesoLegalLabels: Record<string, string> = {
     juridica: 'JURÍDICO',
     extrajudicial: 'PRE-JURÍDICO',
     acuerdo_de_pago: 'ACUERDO DE PAGO',
   };
-  readonly estadoCuentaLabels: Record<string, string> = {
+  readonly estadoProcesoLegalLabels: Record<string, string> = {
     activa: 'ACTIVA',
     cerrada: 'FINALIZADO',
     en_proceso: 'EN PROCESO',
@@ -158,7 +160,7 @@ export class DataService {
     programado: 'Programado',
     pendiente: 'PENDIENTE',
   };
-  readonly tipoPropiedadLabels: Record<string, string> = {
+  readonly tipoCuentaLabels: Record<string, string> = {
     apartamento: 'APARTAMENTO',
     oficina: 'OFICINA',
     local: 'LOCAL',
@@ -183,13 +185,13 @@ export class DataService {
   }
 
   /** Total cobrado de la unidad = valor inicial registrado al crearla. */
-  getTotalCobradoParaPropiedad(p: Propiedad): number {
+  getTotalCobradoParaCuenta(p: Cuenta): number {
     const lockedInicial = this.readSaldoInicialFijo(p.id);
     if (lockedInicial != null) return lockedInicial;
 
     const inicial = Number(p.saldo_inicial);
     const montoBackend = Number.isFinite(Number(p.monto_a_la_fecha)) ? Math.max(0, Number(p.monto_a_la_fecha)) : 0;
-    const historial = this.getHistorialByPropiedad(p.id);
+    const historial = this.getHistorialByCuenta(p.id);
     const totalPagado = historial.reduce(
       (sum, h) => sum + this.toMoneyNumber(h.valor_pagado),
       0
@@ -219,24 +221,24 @@ export class DataService {
   }
 
   /** Suma numérica de todos los pagos registrados en el historial de la unidad. */
-  getTotalPagadoParaPropiedad(p: Propiedad): number {
-    return this.getHistorialByPropiedad(p.id).reduce(
+  getTotalPagadoParaCuenta(p: Cuenta): number {
+    return this.getHistorialByCuenta(p.id).reduce(
       (sum, h) => sum + this.toMoneyNumber(h.valor_pagado),
       0,
     );
   }
 
   /** Deuda actual calculada: saldo inicial - pagos acumulados (nunca negativa). */
-  getDeudaActualParaPropiedad(p: Propiedad): number {
-    return this.getDeudaDesdePagosAcumulados(p, this.getTotalPagadoParaPropiedad(p));
+  getDeudaActualParaCuenta(p: Cuenta): number {
+    return this.getDeudaDesdePagosAcumulados(p, this.getTotalPagadoParaCuenta(p));
   }
 
   /**
    * Deuda para una fila del historial usando la misma base de la card:
-   * saldo inicial de la propiedad - pagos acumulados hasta ese movimiento.
+   * saldo inicial de la cuenta - pagos acumulados hasta ese movimiento.
    */
-  getDeudaParaHistorialPago(p: Propiedad, row: HistorialPago): number {
-    const historial = this.getHistorialByPropiedad(p.id);
+  getDeudaParaHistorialPago(p: Cuenta, row: HistorialPago): number {
+    const historial = this.getHistorialByCuenta(p.id);
     const ordered = historial.slice().sort((a, b) => this.compareHistorialParaSaldo(a, b));
     let totalPagado = 0;
 
@@ -335,7 +337,7 @@ export class DataService {
 
   /** Nombre del deudor (usuario a cobrar) para celdas de tabla. */
   formatDeudorCorto(
-    p: Pick<Propiedad, 'cobro_nombre' | 'cobro_tipo_persona' | 'cobro_documento' | 'cobro_email' | 'deudores'>,
+    p: Pick<Cuenta, 'cobro_nombre' | 'cobro_tipo_persona' | 'cobro_documento' | 'cobro_email' | 'deudores'>,
   ): string {
     const deudores = resolveDeudores(p);
     const first = deudores[0]?.nombre?.trim() || p.cobro_nombre?.trim();
@@ -346,7 +348,7 @@ export class DataService {
 
   /** Resumen corto de correos para la celda (primer correo + contador). */
   formatDeudorEmailCorto(
-    p: Pick<Propiedad, 'cobro_nombre' | 'cobro_tipo_persona' | 'cobro_documento' | 'cobro_email' | 'deudores'>,
+    p: Pick<Cuenta, 'cobro_nombre' | 'cobro_tipo_persona' | 'cobro_documento' | 'cobro_email' | 'deudores'>,
   ): string {
     const deudores = resolveDeudores(p);
     const emails = deudores.flatMap((d) => d.emails).filter(Boolean);
@@ -358,9 +360,9 @@ export class DataService {
     return `${emails[0]} +${emails.length - 1}`;
   }
 
-  /** Tooltip con todos los deudores y correos de la propiedad. */
+  /** Tooltip con todos los deudores y correos de la cuenta. */
   formatDeudorTooltip(
-    p: Pick<Propiedad, 'cobro_nombre' | 'cobro_tipo_persona' | 'cobro_documento' | 'cobro_email' | 'deudores'>,
+    p: Pick<Cuenta, 'cobro_nombre' | 'cobro_tipo_persona' | 'cobro_documento' | 'cobro_email' | 'deudores'>,
   ): string {
     const deudores = resolveDeudores(p);
     if (!deudores.length) {
@@ -403,21 +405,21 @@ export class DataService {
   }
 
   /**
-   * Cobro y mora por **propiedad** (unidad).
+   * Cobro y mora por **cuenta** (unidad).
    *
-   * **Contrato con backend:** `edad_mora_dias` en la respuesta de `GET …/propiedades/:id` es la
-   * fuente principal. Se calcula en servidor al crear/borrar historial (`refreshPropiedadMoraAggregates`):
+   * **Contrato con backend:** `edad_mora_dias` en la respuesta de `GET …/cuentas/:id` es la
+   * fuente principal. Se calcula en servidor al crear/borrar historial (`refreshCuentaMoraAggregates`):
    * mismo criterio que el fallback aquí: **máximo** de `dias_en_mora` por línea de historial.
    * No duplicar `computeDiasEnMora` en el cliente salvo datos ausentes en caché.
    *
    * `fecha_inicio_cobro` solo refleja lo que envía el API (o fallback por historial).
    */
-  getResumenMoraCobroParaPropiedad(p: Propiedad): {
+  getResumenMoraCobroParaCuenta(p: Cuenta): {
     edad_mora_dias: number | null;
     fecha_inicio_cobro: string | null;
     fecha_fin_cobro: string | null;
   } {
-    const historial = this.getHistorialByPropiedad(p.id);
+    const historial = this.getHistorialByCuenta(p.id);
     const maxMoraFromHist = this.maxDiasMoraFromHistorial(historial);
     return {
       edad_mora_dias: p.edad_mora_dias ?? maxMoraFromHist,
@@ -522,74 +524,74 @@ export class DataService {
 
   getHistorialByClienteId(clienteId: string): HistorialPago[] {
     const propIds = new Set(
-      this.propiedadesSignal()
+      this.cuentasSignal()
         .filter((p) => p.cliente_id === clienteId)
         .map((p) => p.id)
     );
-    return Object.values(this.historialByPropiedadSignal())
+    return Object.values(this.historialByCuentaSignal())
       .flat()
-      .filter((h) => propIds.has(h.propiedad_id));
+      .filter((h) => propIds.has(h.cuenta_id));
   }
 
-  getPropiedadesByCliente(clienteId: string): Propiedad[] {
-    return this.propiedadesSignal().filter((p) => p.cliente_id === clienteId);
+  getCuentasByCliente(clienteId: string): Cuenta[] {
+    return this.cuentasSignal().filter((p) => p.cliente_id === clienteId);
   }
 
-  getPropiedadById(id: string): Propiedad | undefined {
-    return this.propiedadesSignal().find((p) => p.id === id);
+  getCuentaById(id: string): Cuenta | undefined {
+    return this.cuentasSignal().find((p) => p.id === id);
   }
 
-  getHistorialByPropiedad(propiedadId: string): HistorialPago[] {
-    return this.historialByPropiedadSignal()[propiedadId] ?? [];
+  getHistorialByCuenta(cuentaId: string): HistorialPago[] {
+    return this.historialByCuentaSignal()[cuentaId] ?? [];
   }
 
-  async addHistorialPago(propiedadId: string, payload: AddHistorialPayload): Promise<HistorialPago> {
-    const hadHistorialBefore = this.getHistorialByPropiedad(propiedadId).length > 0;
-    const record = await this.http.post<HistorialPago>(`/propiedades/${propiedadId}/historial`, payload);
-    await this.ensureFechaInicioCobroOnPrimerRegistro(propiedadId, payload, hadHistorialBefore);
-    await this.loadHistorialByPropiedad(propiedadId);
-    await this.loadPropiedad(propiedadId);
+  async addHistorialPago(cuentaId: string, payload: AddHistorialPayload): Promise<HistorialPago> {
+    const hadHistorialBefore = this.getHistorialByCuenta(cuentaId).length > 0;
+    const record = await this.http.post<HistorialPago>(`/cuentas/${cuentaId}/historial`, payload);
+    await this.ensureFechaInicioCobroOnPrimerRegistro(cuentaId, payload, hadHistorialBefore);
+    await this.loadHistorialByCuenta(cuentaId);
+    await this.loadCuenta(cuentaId);
     return record;
   }
 
   private async ensureFechaInicioCobroOnPrimerRegistro(
-    propiedadId: string,
+    cuentaId: string,
     payload: AddHistorialPayload,
     hadHistorialBefore: boolean
   ): Promise<void> {
     if (hadHistorialBefore) return;
-    let propiedad = this.getPropiedadById(propiedadId);
-    if (!propiedad) {
+    let cuenta = this.getCuentaById(cuentaId);
+    if (!cuenta) {
       try {
-        propiedad = await this.loadPropiedad(propiedadId);
+        cuenta = await this.loadCuenta(cuentaId);
       } catch {
         return;
       }
     }
-    if (propiedad.fecha_inicio_cobro?.trim()) return;
+    if (cuenta.fecha_inicio_cobro?.trim()) return;
     const fechaInicio = payload.fecha_pago?.trim()?.slice(0, 10) || this.todayBogotaYmd();
     try {
-      const updated = await this.http.patch<Propiedad>(`/propiedades/${propiedadId}`, {
+      const updated = await this.http.patch<Cuenta>(`/cuentas/${cuentaId}`, {
         fecha_inicio_cobro: fechaInicio,
       });
-      this.propiedadesSignal.update((prev) => this.upsertById(prev, this.normalizePropiedadMonto(updated, propiedad)));
+      this.cuentasSignal.update((prev) => this.upsertById(prev, this.normalizeCuentaMonto(updated, cuenta)));
     } catch (err) {
       // Fallback: algunos backends no aceptan PATCH parcial.
       try {
-        const fallbackPayload: UpdatePropiedadPayload = {
-          tipo_propiedad: propiedad.tipo_propiedad,
-          identificador: propiedad.identificador,
-          direccion: propiedad.direccion,
-          notas: propiedad.notas ?? '',
-          saldo_inicial: Number(propiedad.saldo_inicial ?? propiedad.monto_a_la_fecha ?? 0),
-          cobro_nombre: propiedad.cobro_nombre,
-          cobro_tipo_persona: propiedad.cobro_tipo_persona,
-          cobro_documento: propiedad.cobro_documento,
-          cobro_email: propiedad.cobro_email,
-          deudores: propiedad.deudores,
+        const fallbackPayload: UpdateCuentaPayload = {
+          tipo_cuenta: cuenta.tipo_cuenta,
+          identificador: cuenta.identificador,
+          direccion: cuenta.direccion,
+          notas: cuenta.notas ?? '',
+          saldo_inicial: Number(cuenta.saldo_inicial ?? cuenta.monto_a_la_fecha ?? 0),
+          cobro_nombre: cuenta.cobro_nombre,
+          cobro_tipo_persona: cuenta.cobro_tipo_persona,
+          cobro_documento: cuenta.cobro_documento,
+          cobro_email: cuenta.cobro_email,
+          deudores: cuenta.deudores,
           fecha_inicio_cobro: fechaInicio,
         };
-        await this.updatePropiedad(propiedadId, fallbackPayload);
+        await this.updateCuenta(cuentaId, fallbackPayload);
       } catch {
         // No bloquea guardar historial si el backend no admite patch de inicio de cobro.
       }
@@ -611,27 +613,27 @@ export class DataService {
   }
 
   async updateHistorialPago(
-    propiedadId: string,
+    cuentaId: string,
     historialId: string,
     payload: AddHistorialPayload,
   ): Promise<HistorialPago> {
-    const path = `/propiedades/${propiedadId}/historial/${historialId}`;
+    const path = `/cuentas/${cuentaId}/historial/${historialId}`;
     const record = await this.http.patch<HistorialPago>(path, payload);
-    await this.loadHistorialByPropiedad(propiedadId);
-    await this.loadPropiedad(propiedadId);
+    await this.loadHistorialByCuenta(cuentaId);
+    await this.loadCuenta(cuentaId);
     return record;
   }
 
-  async deleteHistorialPago(propiedadId: string, historialId: string): Promise<void> {
-    const path = `/propiedades/${propiedadId}/historial/${historialId}`;
+  async deleteHistorialPago(cuentaId: string, historialId: string): Promise<void> {
+    const path = `/cuentas/${cuentaId}/historial/${historialId}`;
     await this.http.delete(path);
-    await this.loadHistorialByPropiedad(propiedadId);
-    await this.loadPropiedad(propiedadId);
+    await this.loadHistorialByCuenta(cuentaId);
+    await this.loadCuenta(cuentaId);
   }
 
   /** Envía recordatorio de pago por correo (admin). El servidor valida deuda/email y envía el HTML del admin. */
   async sendPaymentReminderEmail(
-    propiedadId: string,
+    cuentaId: string,
     payload: {
       subject?: string;
       extra_recipients?: string[];
@@ -640,9 +642,9 @@ export class DataService {
       attachments?: PaymentReminderEmailAttachmentPayload[];
     }
   ): Promise<PaymentReminderEmailRecord> {
-    await this.ensureMontoServidorParaRecordatorio(propiedadId);
+    await this.ensureMontoServidorParaRecordatorio(cuentaId);
     const record = await this.http.post<PaymentReminderEmailRecord>('/payment-reminders/email/send', {
-      propiedad_id: propiedadId,
+      cuenta_id: cuentaId,
       subject: payload.subject,
       extra_recipients: payload.extra_recipients?.length ? payload.extra_recipients : undefined,
       body_html: payload.body_html,
@@ -652,7 +654,7 @@ export class DataService {
     if (record.status === 'sent') {
       // La gestión la crea el backend; refrescamos el timeline sin fallar el envío si el GET falla.
       try {
-        await this.loadGestionesByPropiedad(propiedadId);
+        await this.loadGestionesByCuenta(cuentaId);
       } catch {
         /* ignore */
       }
@@ -660,17 +662,17 @@ export class DataService {
     return record;
   }
 
-  /** Listado de recordatorios de la propiedad (sin cuerpos pesados en algunos backends). */
-  async loadPaymentRemindersByPropiedad(propiedadId: string): Promise<PaymentReminderEmailRecord[]> {
+  /** Listado de recordatorios de la cuenta (sin cuerpos pesados en algunos backends). */
+  async loadPaymentRemindersByCuenta(cuentaId: string): Promise<PaymentReminderEmailRecord[]> {
     const items = await this.http.getItems<PaymentReminderEmailRecord>(
-      `/propiedades/${propiedadId}/payment-reminders`
+      `/payment-reminders/cuentas/${cuentaId}/emails`
     );
-    this.paymentRemindersByPropiedadSignal.update((prev) => ({ ...prev, [propiedadId]: items }));
+    this.paymentRemindersByCuentaSignal.update((prev) => ({ ...prev, [cuentaId]: items }));
     return items;
   }
 
-  getPaymentRemindersByPropiedad(propiedadId: string): PaymentReminderEmailRecord[] {
-    return (this.paymentRemindersByPropiedadSignal()[propiedadId] ?? [])
+  getPaymentRemindersByCuenta(cuentaId: string): PaymentReminderEmailRecord[] {
+    return (this.paymentRemindersByCuentaSignal()[cuentaId] ?? [])
       .slice()
       .sort((a, b) => {
         const ta = Date.parse(a.sent_at ?? a.created_at) || 0;
@@ -679,106 +681,158 @@ export class DataService {
       });
   }
 
-  /** Detalle completo del recordatorio (incluye body_html / body_text). */
-  async getPaymentReminderById(reminderId: string): Promise<PaymentReminderEmailRecord> {
-    return this.http.get<PaymentReminderEmailRecord>(`/payment-reminders/${reminderId}`);
+  /** Detalle del correo por id de gestión (`GET /payment-reminders/:gestionId`). */
+  async getPaymentReminderById(gestionId: string): Promise<PaymentReminderEmailRecord> {
+    return this.http.get<PaymentReminderEmailRecord>(`/payment-reminders/${gestionId}`);
   }
 
-  /** Gestiones creadas automáticamente al enviar un recordatorio (solo lectura). */
-  isGestionEmailReminder(g: Pick<Gestion, 'origen' | 'email_reminder_id'>): boolean {
-    return g.origen === 'email_reminder' || !!g.email_reminder_id;
+  /** Gestiones de correo (`tipo === 'email_reminder'`); solo lectura en UI. */
+  isGestionEmailReminder(g: Pick<Gestion, 'tipo' | 'origen' | 'detalle' | 'email_reminder_id'>): boolean {
+    if (g.tipo === 'email_reminder') return true;
+    if (g.tipo === 'manual') return false;
+    // Legacy
+    if (g.origen === 'email_reminder') return true;
+    return !!this.getGestionEmailReminderId(g);
+  }
+
+  getGestionEstado(g: Pick<Gestion, 'detalle' | 'estado'>): string {
+    return String(g.detalle?.estado ?? g.estado ?? '').trim();
+  }
+
+  /**
+   * Resumen en timeline: si `descripcion` es JSON con `summary`, usa ese campo;
+   * si es manual (texto plano), se muestra tal cual.
+   */
+  getGestionDescripcion(g: Pick<Gestion, 'detalle' | 'descripcion' | 'tipo'>): string {
+    const raw = String(g.detalle?.descripcion ?? g.descripcion ?? '').trim();
+    if (!raw) return '';
+    if (raw.startsWith('{') || raw.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(raw) as { summary?: unknown };
+        if (typeof parsed?.summary === 'string' && parsed.summary.trim()) {
+          return parsed.summary.trim();
+        }
+      } catch {
+        /* texto plano */
+      }
+    }
+    return raw;
+  }
+
+  /**
+   * @deprecated El detalle del correo se abre con `gestion.id`
+   * (`GET /payment-reminders/:gestionId`), no con un id de tabla de correo.
+   */
+  getGestionEmailReminderId(
+    g: Pick<Gestion, 'detalle' | 'email_reminder_id'>
+  ): string | null {
+    const id = g.detalle?.email_reminder_id ?? g.email_reminder_id;
+    const trimmed = String(id ?? '').trim();
+    return trimmed || null;
   }
 
   /**
    * Alinea `monto_a_la_fecha` en el servidor cuando la UI muestra deuda pero el campo en BD quedó en 0
    * (p. ej. saldo inicial solo en localStorage, sin movimientos de historial).
    */
-  private async ensureMontoServidorParaRecordatorio(propiedadId: string): Promise<void> {
-    let propiedad = this.getPropiedadById(propiedadId);
-    if (!propiedad) {
-      propiedad = await this.loadPropiedad(propiedadId);
+  private async ensureMontoServidorParaRecordatorio(cuentaId: string): Promise<void> {
+    let cuenta = this.getCuentaById(cuentaId);
+    if (!cuenta) {
+      cuenta = await this.loadCuenta(cuentaId);
     } else {
-      await this.loadPropiedad(propiedadId);
-      propiedad = this.getPropiedadById(propiedadId) ?? propiedad;
+      await this.loadCuenta(cuentaId);
+      cuenta = this.getCuentaById(cuentaId) ?? cuenta;
     }
 
-    const deudaUi = this.getDeudaActualParaPropiedad(propiedad);
+    const deudaUi = this.getDeudaActualParaCuenta(cuenta);
     if (deudaUi <= 0) return;
 
-    const montoServidor = Number(propiedad.monto_a_la_fecha);
+    const montoServidor = Number(cuenta.monto_a_la_fecha);
     if (montoServidor > 0) return;
 
-    const historial = this.getHistorialByPropiedad(propiedadId);
+    const historial = this.getHistorialByCuenta(cuentaId);
     if (historial.length > 0) return;
 
-    await this.updatePropiedad(propiedadId, {
-      tipo_propiedad: propiedad.tipo_propiedad,
-      identificador: propiedad.identificador,
-      direccion: propiedad.direccion,
-      notas: propiedad.notas,
+    await this.updateCuenta(cuentaId, {
+      tipo_cuenta: cuenta.tipo_cuenta,
+      identificador: cuenta.identificador,
+      direccion: cuenta.direccion,
+      notas: cuenta.notas,
       saldo_inicial: deudaUi,
-      cobro_nombre: propiedad.cobro_nombre,
-      cobro_tipo_persona: propiedad.cobro_tipo_persona,
-      cobro_documento: propiedad.cobro_documento,
-      cobro_email: propiedad.cobro_email,
-      deudores: propiedad.deudores,
+      cobro_nombre: cuenta.cobro_nombre,
+      cobro_tipo_persona: cuenta.cobro_tipo_persona,
+      cobro_documento: cuenta.cobro_documento,
+      cobro_email: cuenta.cobro_email,
+      deudores: cuenta.deudores,
     });
   }
 
-  async addGestion(propiedadId: string, payload: UpdateGestionPayload): Promise<Gestion> {
-    const gestion = await this.http.post<Gestion>(`/propiedades/${propiedadId}/gestiones`, payload);
-    await this.loadGestionesByPropiedad(propiedadId);
-    return gestion;
+  async addGestion(cuentaId: string, payload: UpdateGestionPayload): Promise<Gestion> {
+    const gestion = await this.http.post<Gestion>(`/cuentas/${cuentaId}/gestiones`, payload);
+    await this.loadGestionesByCuenta(cuentaId);
+    return this.normalizeGestion(gestion, cuentaId);
   }
 
   async updateGestion(
-    propiedadId: string,
+    cuentaId: string,
     gestionId: string,
     payload: UpdateGestionPayload
   ): Promise<Gestion> {
     const gestion = await this.http.patch<Gestion>(
-      `/propiedades/${propiedadId}/gestiones/${gestionId}`,
+      `/cuentas/${cuentaId}/gestiones/${gestionId}`,
       payload
     );
-    await this.loadGestionesByPropiedad(propiedadId);
-    return gestion;
+    await this.loadGestionesByCuenta(cuentaId);
+    return this.normalizeGestion(gestion, cuentaId);
   }
 
-  async deleteGestion(propiedadId: string, gestionId: string): Promise<void> {
-    await this.http.delete(`/propiedades/${propiedadId}/gestiones/${gestionId}`);
-    await this.loadGestionesByPropiedad(propiedadId);
+  async deleteGestion(cuentaId: string, gestionId: string): Promise<void> {
+    await this.http.delete(`/cuentas/${cuentaId}/gestiones/${gestionId}`);
+    await this.loadGestionesByCuenta(cuentaId);
   }
 
-  getCuentasByCliente(clienteId: string): Cuenta[] {
-    return this.cuentasSignal().filter((c) => c.cliente_id === clienteId);
+  getProcesosLegalesByCliente(clienteId: string): ProcesoLegal[] {
+    return this.procesosLegalesSignal().filter((c) => c.cliente_id === clienteId);
   }
 
-  getGestionesByPropiedad(propiedadId: string): Gestion[] {
-    return (this.gestionesByPropiedadSignal()[propiedadId] ?? [])
+  getGestionesByCuenta(cuentaId: string): Gestion[] {
+    return (this.gestionesByCuentaSignal()[cuentaId] ?? [])
       .slice()
-      .sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
+      .sort((a, b) => this.gestionSortTime(b) - this.gestionSortTime(a));
   }
 
-  getEstadoCuentaFilesByPropiedad(propiedadId: string): EstadoCuentaFile[] {
-    return (this.estadoCuentaFilesByPropiedadSignal()[propiedadId] ?? [])
+  /** Timestamp para ordenar timeline: más reciente primero (fecha con hora, o created_at). */
+  private gestionSortTime(g: Pick<Gestion, 'fecha' | 'created_at'>): number {
+    const fechaRaw = String(g.fecha ?? '').trim();
+    const createdRaw = String(g.created_at ?? '').trim();
+    const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(fechaRaw.slice(0, 10));
+    const hasExplicitTime = fechaRaw.includes('T') && !/T00:00:00(\.000)?Z?$/.test(fechaRaw);
+    const source =
+      dateOnly && !hasExplicitTime && createdRaw ? createdRaw : fechaRaw || createdRaw;
+    const parsed = Date.parse(source);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  getEstadoCuentaFilesByCuenta(cuentaId: string): EstadoCuentaFile[] {
+    return (this.estadoCuentaFilesByCuentaSignal()[cuentaId] ?? [])
       .slice()
       .sort((a, b) => new Date(b.fecha_subida).getTime() - new Date(a.fecha_subida).getTime());
   }
 
-  calcularMontoALaFecha(propiedadId: string): number {
-    const propiedad = this.getPropiedadById(propiedadId);
-    if (propiedad) return this.getDeudaActualParaPropiedad(propiedad);
+  calcularMontoALaFecha(cuentaId: string): number {
+    const cuenta = this.getCuentaById(cuentaId);
+    if (cuenta) return this.getDeudaActualParaCuenta(cuenta);
 
-    const historial = this.getHistorialByPropiedad(propiedadId);
+    const historial = this.getHistorialByCuenta(cuentaId);
     const totalCobrado = historial.reduce((sum, h) => sum + h.valor_cobrado, 0);
     const totalPagado = historial.reduce((sum, h) => sum + h.valor_pagado, 0);
     return Math.max(0, totalCobrado - totalPagado);
   }
 
   getTotalCartera(): number {
-    const propiedades = this.propiedadesSignal();
+    const propiedades = this.cuentasSignal();
     if (propiedades.length > 0) {
-      return propiedades.reduce((sum, p) => sum + this.getDeudaActualParaPropiedad(p), 0);
+      return propiedades.reduce((sum, p) => sum + this.getDeudaActualParaCuenta(p), 0);
     }
 
     return this.metricsDashboardSignal().total_cartera;
@@ -790,6 +844,10 @@ export class DataService {
 
   getCuentasActivas(): number {
     return this.metricsDashboardSignal().cuentas_activas;
+  }
+
+  getProcesosLegalesActivos(): number {
+    return this.metricsDashboardSignal().procesos_legales_activos;
   }
 
   getDistribucionEstados(): Record<string, number> {
@@ -804,20 +862,20 @@ export class DataService {
     return this.clientesSignal();
   }
 
-  get mockPropiedades(): Propiedad[] {
-    return this.propiedadesSignal();
-  }
-
-  get mockHistorial(): HistorialPago[] {
-    return Object.values(this.historialByPropiedadSignal()).flat();
-  }
-
   get mockCuentas(): Cuenta[] {
     return this.cuentasSignal();
   }
 
+  get mockHistorial(): HistorialPago[] {
+    return Object.values(this.historialByCuentaSignal()).flat();
+  }
+
+  get mockProcesosLegales(): ProcesoLegal[] {
+    return this.procesosLegalesSignal();
+  }
+
   get mockGestiones(): Gestion[] {
-    return Object.values(this.gestionesByPropiedadSignal()).flat();
+    return Object.values(this.gestionesByCuentaSignal()).flat();
   }
 
   async loadDashboardData(): Promise<void> {
@@ -825,11 +883,11 @@ export class DataService {
       this.loadMetricsDashboard(),
       this.loadDistribucionEstados(),
       this.loadClientes(),
-      this.loadPropiedades(),
+      this.loadCuentas(),
     ]);
     await Promise.all([
-      this.loadCuentasForLoadedClientes(),
-      this.loadHistorialesForPropiedades(this.propiedadesSignal()),
+      this.loadProcesosLegalesForLoadedClientes(),
+      this.loadHistorialesForCuentas(this.cuentasSignal()),
     ]);
   }
 
@@ -839,11 +897,11 @@ export class DataService {
       this.loadDistribucionEstados(),
       this.loadEvolucionCartera(months),
       this.loadClientes(),
-      this.loadPropiedades(),
+      this.loadCuentas(),
     ]);
     await Promise.all([
-      this.loadCuentasForLoadedClientes(),
-      this.loadHistorialesForPropiedades(this.propiedadesSignal()),
+      this.loadProcesosLegalesForLoadedClientes(),
+      this.loadHistorialesForCuentas(this.cuentasSignal()),
     ]);
   }
 
@@ -873,132 +931,132 @@ export class DataService {
     return cliente;
   }
 
-  async createPropiedad(payload: CreatePropiedadPayload): Promise<Propiedad> {
-    // El backend calcula automáticamente el saldo/monto_a_la_fecha al crear la propiedad.
-    const propiedad = await this.http.post<Propiedad>('/propiedades', payload);
-    this.writeSaldoInicialFijo(propiedad.id, payload.saldo_inicial);
-    const withPayloadDeudores: Propiedad = {
-      ...propiedad,
-      saldo_inicial: propiedad.saldo_inicial ?? payload.saldo_inicial,
-      deudores: Array.isArray(propiedad.deudores) && propiedad.deudores.length > 0
-        ? propiedad.deudores
+  async createCuenta(payload: CreateCuentaPayload): Promise<Cuenta> {
+    // El backend calcula automáticamente el saldo/monto_a_la_fecha al crear la cuenta.
+    const cuenta = await this.http.post<Cuenta>('/cuentas', payload);
+    this.writeSaldoInicialFijo(cuenta.id, payload.saldo_inicial);
+    const withPayloadDeudores: Cuenta = {
+      ...cuenta,
+      saldo_inicial: cuenta.saldo_inicial ?? payload.saldo_inicial,
+      deudores: Array.isArray(cuenta.deudores) && cuenta.deudores.length > 0
+        ? cuenta.deudores
         : payload.deudores,
-      cobro_nombre: propiedad.cobro_nombre || payload.cobro_nombre,
-      cobro_tipo_persona: propiedad.cobro_tipo_persona || payload.cobro_tipo_persona,
-      cobro_documento: propiedad.cobro_documento || payload.cobro_documento,
-      cobro_email: propiedad.cobro_email || payload.cobro_email,
+      cobro_nombre: cuenta.cobro_nombre || payload.cobro_nombre,
+      cobro_tipo_persona: cuenta.cobro_tipo_persona || payload.cobro_tipo_persona,
+      cobro_documento: cuenta.cobro_documento || payload.cobro_documento,
+      cobro_email: cuenta.cobro_email || payload.cobro_email,
     };
-    const normalizedPropiedad = this.normalizePropiedadMonto(
+    const normalizedCuenta = this.normalizeCuentaMonto(
       withPayloadDeudores,
       { ...withPayloadDeudores, saldo_inicial: payload.saldo_inicial, monto_a_la_fecha: payload.saldo_inicial }
     );
-    this.propiedadesSignal.update((prev) => this.upsertById(prev, normalizedPropiedad));
-    await this.loadPropiedadesByCliente(payload.cliente_id);
-    return normalizedPropiedad;
+    this.cuentasSignal.update((prev) => this.upsertById(prev, normalizedCuenta));
+    await this.loadCuentasByCliente(payload.cliente_id);
+    return normalizedCuenta;
   }
 
-  async updatePropiedad(propiedadId: string, payload: UpdatePropiedadPayload): Promise<Propiedad> {
-    const propiedad = await this.http.patch<Propiedad>(`/propiedades/${propiedadId}`, payload);
-    const prevPropiedad = this.getPropiedadById(propiedadId);
+  async updateCuenta(cuentaId: string, payload: UpdateCuentaPayload): Promise<Cuenta> {
+    const cuenta = await this.http.patch<Cuenta>(`/cuentas/${cuentaId}`, payload);
+    const prevCuenta = this.getCuentaById(cuentaId);
     const nuevoSaldo =
       payload.saldo_inicial != null && Number.isFinite(Number(payload.saldo_inicial))
         ? Math.max(0, Number(payload.saldo_inicial))
         : null;
     if (nuevoSaldo != null) {
-      this.writeSaldoInicialFijo(propiedadId, nuevoSaldo);
+      this.writeSaldoInicialFijo(cuentaId, nuevoSaldo);
     }
     // Si el PATCH trae saldo_inicial, debe ganar sobre el valor previo en memoria
-    // (normalizePropiedadMonto prioriza lock/prev sobre el payload del servidor).
-    const propiedadConSaldo: Propiedad = {
-      ...(nuevoSaldo != null ? { ...propiedad, saldo_inicial: nuevoSaldo } : propiedad),
+    // (normalizeCuentaMonto prioriza lock/prev sobre el payload del servidor).
+    const propiedadConSaldo: Cuenta = {
+      ...(nuevoSaldo != null ? { ...cuenta, saldo_inicial: nuevoSaldo } : cuenta),
       deudores:
-        Array.isArray(propiedad.deudores) && propiedad.deudores.length > 0
-          ? propiedad.deudores
-          : payload.deudores ?? prevPropiedad?.deudores,
+        Array.isArray(cuenta.deudores) && cuenta.deudores.length > 0
+          ? cuenta.deudores
+          : payload.deudores ?? prevCuenta?.deudores,
     };
     const prevConSaldo =
-      nuevoSaldo != null && prevPropiedad
-        ? { ...prevPropiedad, saldo_inicial: nuevoSaldo }
-        : prevPropiedad;
-    const normalizedPropiedad = this.normalizePropiedadMonto(propiedadConSaldo, prevConSaldo);
-    this.propiedadesSignal.update((prev) => this.upsertById(prev, normalizedPropiedad));
-    await this.loadPropiedadesByCliente(propiedad.cliente_id);
-    return this.getPropiedadById(propiedadId) ?? normalizedPropiedad;
+      nuevoSaldo != null && prevCuenta
+        ? { ...prevCuenta, saldo_inicial: nuevoSaldo }
+        : prevCuenta;
+    const normalizedCuenta = this.normalizeCuentaMonto(propiedadConSaldo, prevConSaldo);
+    this.cuentasSignal.update((prev) => this.upsertById(prev, normalizedCuenta));
+    await this.loadCuentasByCliente(cuenta.cliente_id);
+    return this.getCuentaById(cuentaId) ?? normalizedCuenta;
   }
 
-  async deletePropiedad(propiedadId: string, clienteId: string): Promise<void> {
-    await this.http.delete(`/propiedades/${propiedadId}`);
-    this.propiedadesSignal.update((prev) => prev.filter((p) => p.id !== propiedadId));
-    this.historialByPropiedadSignal.update((prev) => {
-      const { [propiedadId]: _removed, ...rest } = prev;
+  async deleteCuenta(cuentaId: string, clienteId: string): Promise<void> {
+    await this.http.delete(`/cuentas/${cuentaId}`);
+    this.cuentasSignal.update((prev) => prev.filter((p) => p.id !== cuentaId));
+    this.historialByCuentaSignal.update((prev) => {
+      const { [cuentaId]: _removed, ...rest } = prev;
       return rest;
     });
-    this.gestionesByPropiedadSignal.update((prev) => {
-      const { [propiedadId]: _removed, ...rest } = prev;
+    this.gestionesByCuentaSignal.update((prev) => {
+      const { [cuentaId]: _removed, ...rest } = prev;
       return rest;
     });
-    this.paymentRemindersByPropiedadSignal.update((prev) => {
-      const { [propiedadId]: _removed, ...rest } = prev;
+    this.paymentRemindersByCuentaSignal.update((prev) => {
+      const { [cuentaId]: _removed, ...rest } = prev;
       return rest;
     });
-    this.estadoCuentaFilesByPropiedadSignal.update((prev) => {
-      const { [propiedadId]: _removed, ...rest } = prev;
+    this.estadoCuentaFilesByCuentaSignal.update((prev) => {
+      const { [cuentaId]: _removed, ...rest } = prev;
       return rest;
     });
     try {
-      await this.loadPropiedadesByCliente(clienteId);
+      await this.loadCuentasByCliente(clienteId);
     } catch {
       // El borrado ya se aplicó en servidor y en el listado local.
     }
   }
 
-  async loadPropiedades(clienteId?: string): Promise<Propiedad[]> {
+  async loadCuentas(clienteId?: string): Promise<Cuenta[]> {
     const params = clienteId ? new HttpParams().set('cliente_id', clienteId) : undefined;
-    const items = await this.http.getItems<Propiedad>('/propiedades', { params });
-    const normalizedItems = this.normalizePropiedadesList(items);
+    const items = await this.http.getItems<Cuenta>('/cuentas', { params });
+    const normalizedItems = this.normalizeCuentasList(items);
     if (clienteId) {
-      this.propiedadesSignal.update((prev) => {
+      this.cuentasSignal.update((prev) => {
         const others = prev.filter((p) => p.cliente_id !== clienteId);
         return [...others, ...normalizedItems];
       });
     } else {
-      this.propiedadesSignal.set(normalizedItems);
+      this.cuentasSignal.set(normalizedItems);
     }
     return normalizedItems;
   }
 
-  async loadPropiedad(id: string): Promise<Propiedad> {
-    const propiedad = await this.http.get<Propiedad>(`/propiedades/${id}`);
-    const prevPropiedad = this.getPropiedadById(id);
-    const normalizedPropiedad = this.normalizePropiedadMonto(propiedad, prevPropiedad);
-    this.propiedadesSignal.update((prev) => this.upsertById(prev, normalizedPropiedad));
-    return normalizedPropiedad;
+  async loadCuenta(id: string): Promise<Cuenta> {
+    const cuenta = await this.http.get<Cuenta>(`/cuentas/${id}`);
+    const prevCuenta = this.getCuentaById(id);
+    const normalizedCuenta = this.normalizeCuentaMonto(cuenta, prevCuenta);
+    this.cuentasSignal.update((prev) => this.upsertById(prev, normalizedCuenta));
+    return normalizedCuenta;
   }
 
-  async loadPropiedadDetallesForPropiedades(propiedades: Pick<Propiedad, 'id'>[]): Promise<Propiedad[]> {
-    return Promise.all(propiedades.map((p) => this.loadPropiedad(p.id)));
+  async loadCuentaDetallesForCuentas(propiedades: Pick<Cuenta, 'id'>[]): Promise<Cuenta[]> {
+    return Promise.all(propiedades.map((p) => this.loadCuenta(p.id)));
   }
 
-  async loadPropiedadesByCliente(clienteId: string): Promise<Propiedad[]> {
-    const items = await this.http.getItems<Propiedad>(`/clientes/${clienteId}/propiedades`);
-    const normalizedItems = this.normalizePropiedadesList(items);
-    this.propiedadesSignal.update((prev) => {
+  async loadCuentasByCliente(clienteId: string): Promise<Cuenta[]> {
+    const items = await this.http.getItems<Cuenta>(`/clientes/${clienteId}/cuentas`);
+    const normalizedItems = this.normalizeCuentasList(items);
+    this.cuentasSignal.update((prev) => {
       const others = prev.filter((p) => p.cliente_id !== clienteId);
       return [...others, ...normalizedItems];
     });
     return normalizedItems;
   }
 
-  async loadCuentasByCliente(clienteId: string): Promise<Cuenta[]> {
-    const items = await this.http.getItems<Cuenta>(`/clientes/${clienteId}/cuentas`);
-    this.cuentasSignal.update((prev) => {
+  async loadProcesosLegalesByCliente(clienteId: string): Promise<ProcesoLegal[]> {
+    const items = await this.http.getItems<ProcesoLegal>(`/clientes/${clienteId}/procesos-legales`);
+    this.procesosLegalesSignal.update((prev) => {
       const others = prev.filter((c) => c.cliente_id !== clienteId);
       return [...others, ...items];
     });
     return items;
   }
 
-  async createCuenta(payload: CreateCuentaPayload): Promise<Cuenta> {
+  async createProcesoLegal(payload: CreateProcesoLegalPayload): Promise<ProcesoLegal> {
     const body: Record<string, unknown> = {
       cliente_id: payload.cliente_id,
       numero_cuenta: payload.numero_cuenta,
@@ -1006,107 +1064,150 @@ export class DataService {
       estado: payload.estado,
       etapa_proceso: payload.etapa_proceso,
     };
-    if (payload.propiedad_id) {
-      body['propiedad_id'] = payload.propiedad_id;
+    if (payload.cuenta_id) {
+      body['cuenta_id'] = payload.cuenta_id;
     }
-    const cuenta = await this.http.post<Cuenta>('/cuentas', body);
-    await this.loadCuentasByCliente(payload.cliente_id);
+    const cuenta = await this.http.post<ProcesoLegal>('/procesos-legales', body);
+    await this.loadProcesosLegalesByCliente(payload.cliente_id);
     await this.loadMetricsDashboard();
     return cuenta;
   }
 
-  async updateCuentaEstado(cuentaId: string, payload: UpdateCuentaEstadoPayload): Promise<Cuenta> {
-    const cuenta = await this.http.patch<Cuenta>(`/cuentas/${cuentaId}`, payload);
-    this.cuentasSignal.update((prev) => this.upsertById(prev, cuenta));
+  async updateProcesoLegalEstado(procesoLegalId: string, payload: UpdateProcesoLegalEstadoPayload): Promise<ProcesoLegal> {
+    const cuenta = await this.http.patch<ProcesoLegal>(`/procesos-legales/${procesoLegalId}`, payload);
+    this.procesosLegalesSignal.update((prev) => this.upsertById(prev, cuenta));
     await this.loadMetricsDashboard();
     return cuenta;
   }
 
-  async updateCuenta(cuentaId: string, payload: UpdateCuentaPayload): Promise<Cuenta> {
+  async updateProcesoLegal(procesoLegalId: string, payload: UpdateProcesoLegalPayload): Promise<ProcesoLegal> {
     const body: Record<string, unknown> = {
       numero_cuenta: payload.numero_cuenta,
       tipo: payload.tipo,
       estado: payload.estado,
       etapa_proceso: payload.etapa_proceso,
-      propiedad_id: payload.propiedad_id ?? null,
+      cuenta_id: payload.cuenta_id ?? null,
     };
-    const clienteId = this.cuentasSignal().find((c) => c.id === cuentaId)?.cliente_id;
-    const patched = await this.http.patch<Cuenta>(`/cuentas/${cuentaId}`, body);
+    const clienteId = this.procesosLegalesSignal().find((c) => c.id === procesoLegalId)?.cliente_id;
+    const patched = await this.http.patch<ProcesoLegal>(`/procesos-legales/${procesoLegalId}`, body);
     if (clienteId) {
-      await this.loadCuentasByCliente(clienteId);
+      await this.loadProcesosLegalesByCliente(clienteId);
     } else {
-      this.cuentasSignal.update((prev) => this.upsertById(prev, patched));
+      this.procesosLegalesSignal.update((prev) => this.upsertById(prev, patched));
     }
     await this.loadMetricsDashboard();
     if (clienteId) {
-      const refreshed = this.getCuentasByCliente(clienteId).find((c) => c.id === cuentaId);
+      const refreshed = this.getProcesosLegalesByCliente(clienteId).find((c) => c.id === procesoLegalId);
       if (refreshed) return refreshed;
     }
     return patched;
   }
 
-  async deleteCuenta(cuentaId: string, clienteId: string): Promise<void> {
-    await this.http.delete(`/cuentas/${cuentaId}`);
-    await this.loadCuentasByCliente(clienteId);
+  async deleteProcesoLegal(procesoLegalId: string, clienteId: string): Promise<void> {
+    await this.http.delete(`/procesos-legales/${procesoLegalId}`);
+    await this.loadProcesosLegalesByCliente(clienteId);
     await this.loadMetricsDashboard();
   }
 
-  async loadHistorialByPropiedad(propiedadId: string): Promise<HistorialPago[]> {
-    const items = await this.http.getItems<HistorialPago>(`/propiedades/${propiedadId}/historial`);
-    this.historialByPropiedadSignal.update((prev) => ({ ...prev, [propiedadId]: items }));
+  async loadHistorialByCuenta(cuentaId: string): Promise<HistorialPago[]> {
+    const items = await this.http.getItems<HistorialPago>(`/cuentas/${cuentaId}/historial`);
+    this.historialByCuentaSignal.update((prev) => ({ ...prev, [cuentaId]: items }));
     return items;
   }
 
-  async loadHistorialesForPropiedades(propiedades: Pick<Propiedad, 'id'>[]): Promise<void> {
-    await Promise.all(propiedades.map((p) => this.loadHistorialByPropiedad(p.id)));
+  async loadHistorialesForCuentas(propiedades: Pick<Cuenta, 'id'>[]): Promise<void> {
+    await Promise.all(propiedades.map((p) => this.loadHistorialByCuenta(p.id)));
   }
 
-  async loadGestionesByPropiedad(propiedadId: string): Promise<Gestion[]> {
-    const items = await this.http.getItems<Gestion>(`/propiedades/${propiedadId}/gestiones`);
-    this.gestionesByPropiedadSignal.update((prev) => ({ ...prev, [propiedadId]: items }));
-    return items;
+  async loadGestionesByCuenta(cuentaId: string): Promise<Gestion[]> {
+    const items = await this.http.getItems<Gestion>(`/cuentas/${cuentaId}/gestiones`);
+    const normalized = items.map((g) => this.normalizeGestion(g, cuentaId));
+    this.gestionesByCuentaSignal.update((prev) => ({ ...prev, [cuentaId]: normalized }));
+    return normalized;
   }
 
-  async loadEstadoCuentaFilesByPropiedad(propiedadId: string): Promise<EstadoCuentaFile[]> {
-    const items = this.readEstadoCuentaFilesFromStorage(propiedadId);
-    this.estadoCuentaFilesByPropiedadSignal.update((prev) => ({ ...prev, [propiedadId]: items }));
+  /**
+   * Unifica contrato nuevo (`tipo` + `detalle`) y legacy (campos planos / `origen`).
+   * El cuerpo HTML del correo no viene en gestiones: se abre con `GET /payment-reminders/:gestionId`.
+   */
+  private normalizeGestion(raw: Gestion, cuentaIdFallback?: string): Gestion {
+    const detalleRaw = raw.detalle;
+    const emailReminderId =
+      detalleRaw?.email_reminder_id ?? raw.email_reminder_id ?? null;
+    const estado = String(detalleRaw?.estado ?? raw.estado ?? '').trim();
+    const descripcion = String(detalleRaw?.descripcion ?? raw.descripcion ?? '').trim();
+    const detalle = {
+      estado,
+      descripcion,
+      ...(emailReminderId != null && String(emailReminderId).trim() !== ''
+        ? { email_reminder_id: String(emailReminderId).trim() }
+        : { email_reminder_id: emailReminderId }),
+    };
+    let tipo = raw.tipo;
+    if (!tipo) {
+      if (raw.origen === 'email_reminder' || detalle.email_reminder_id) {
+        tipo = 'email_reminder';
+      } else {
+        tipo = 'manual';
+      }
+    }
+    return {
+      ...raw,
+      cuenta_id: raw.cuenta_id || cuentaIdFallback || '',
+      tipo,
+      detalle,
+      estado,
+      descripcion,
+      email_reminder_id: detalle.email_reminder_id ?? null,
+    };
+  }
+
+  async loadEstadoCuentaFilesByCuenta(cuentaId: string): Promise<EstadoCuentaFile[]> {
+    const items = this.readEstadoCuentaFilesFromStorage(cuentaId);
+    this.estadoCuentaFilesByCuentaSignal.update((prev) => ({ ...prev, [cuentaId]: items }));
     return items;
   }
 
   async uploadEstadoCuentaFileMock(
-    propiedadId: string,
+    cuentaId: string,
     payload: { file: File; notas?: string }
   ): Promise<EstadoCuentaFile> {
     const next: EstadoCuentaFile = {
       id: this.createMockFileId(),
-      propiedad_id: propiedadId,
+      cuenta_id: cuentaId,
       nombre: payload.file.name,
       tamano_bytes: payload.file.size,
       mime_type: payload.file.type || 'application/octet-stream',
       fecha_subida: new Date().toISOString(),
       notas: payload.notas?.trim() || undefined,
     };
-    const current = this.readEstadoCuentaFilesFromStorage(propiedadId);
+    const current = this.readEstadoCuentaFilesFromStorage(cuentaId);
     const updated = [next, ...current];
-    this.writeEstadoCuentaFilesToStorage(propiedadId, updated);
-    this.estadoCuentaFilesByPropiedadSignal.update((prev) => ({ ...prev, [propiedadId]: updated }));
+    this.writeEstadoCuentaFilesToStorage(cuentaId, updated);
+    this.estadoCuentaFilesByCuentaSignal.update((prev) => ({ ...prev, [cuentaId]: updated }));
     return next;
   }
 
-  async deleteEstadoCuentaFileMock(propiedadId: string, fileId: string): Promise<void> {
-    const current = this.readEstadoCuentaFilesFromStorage(propiedadId);
+  async deleteEstadoCuentaFileMock(cuentaId: string, fileId: string): Promise<void> {
+    const current = this.readEstadoCuentaFilesFromStorage(cuentaId);
     const updated = current.filter((f) => f.id !== fileId);
-    this.writeEstadoCuentaFilesToStorage(propiedadId, updated);
-    this.estadoCuentaFilesByPropiedadSignal.update((prev) => ({ ...prev, [propiedadId]: updated }));
+    this.writeEstadoCuentaFilesToStorage(cuentaId, updated);
+    this.estadoCuentaFilesByCuentaSignal.update((prev) => ({ ...prev, [cuentaId]: updated }));
   }
 
   async loadMetricsDashboard(): Promise<void> {
     const metrics = await this.http.get<{
       total_cartera: number;
       clientes_activos: number;
-      cuentas_activas: number;
+      cuentas_activas?: number;
+      procesos_legales_activos?: number;
     }>('/metrics/dashboard');
-    this.metricsDashboardSignal.set(metrics);
+    this.metricsDashboardSignal.set({
+      total_cartera: metrics.total_cartera ?? 0,
+      clientes_activos: metrics.clientes_activos ?? 0,
+      cuentas_activas: metrics.cuentas_activas ?? 0,
+      procesos_legales_activos: metrics.procesos_legales_activos ?? 0,
+    });
   }
 
   async loadDistribucionEstados(): Promise<void> {
@@ -1122,9 +1223,9 @@ export class DataService {
     this.evolucionSignal.set(data.series ?? []);
   }
 
-  private async loadCuentasForLoadedClientes(): Promise<void> {
+  private async loadProcesosLegalesForLoadedClientes(): Promise<void> {
     const clientes = this.clientesSignal();
-    await Promise.all(clientes.map((c) => this.loadCuentasByCliente(c.id)));
+    await Promise.all(clientes.map((c) => this.loadProcesosLegalesByCliente(c.id)));
   }
 
   private upsertById<T extends { id: string }>(items: T[], value: T): T[] {
@@ -1135,8 +1236,8 @@ export class DataService {
     return copy;
   }
 
-  private getDeudaDesdePagosAcumulados(p: Propiedad, totalPagado: number): number {
-    return Math.max(0, this.getTotalCobradoParaPropiedad(p) - totalPagado);
+  private getDeudaDesdePagosAcumulados(p: Cuenta, totalPagado: number): number {
+    return Math.max(0, this.getTotalCobradoParaCuenta(p) - totalPagado);
   }
 
   private compareHistorialParaSaldo(a: HistorialPago, b: HistorialPago): number {
@@ -1165,18 +1266,18 @@ export class DataService {
     return Number.isFinite(numeric) ? numeric : 0;
   }
 
-  private normalizePropiedadesList(items: Propiedad[]): Propiedad[] {
-    const prevById = new Map(this.propiedadesSignal().map((p) => [p.id, p]));
-    return items.map((p) => this.normalizePropiedadMonto(p, prevById.get(p.id)));
+  private normalizeCuentasList(items: Cuenta[]): Cuenta[] {
+    const prevById = new Map(this.cuentasSignal().map((p) => [p.id, p]));
+    return items.map((p) => this.normalizeCuentaMonto(p, prevById.get(p.id)));
   }
 
-  private normalizePropiedadMonto(propiedad: Propiedad, prev?: Propiedad): Propiedad {
-    const withDeudores = normalizePropiedadDeudores({
-      ...propiedad,
+  private normalizeCuentaMonto(cuenta: Cuenta, prev?: Cuenta): Cuenta {
+    const withDeudores = normalizeCuentaDeudores({
+      ...cuenta,
       // Si el API no trae deudores pero el estado local sí, conserva la lista previa.
       deudores:
-        Array.isArray(propiedad.deudores) && propiedad.deudores.length > 0
-          ? propiedad.deudores
+        Array.isArray(cuenta.deudores) && cuenta.deudores.length > 0
+          ? cuenta.deudores
           : prev?.deudores,
     });
     const monto = Number(withDeudores.monto_a_la_fecha);
@@ -1220,29 +1321,29 @@ export class DataService {
     return /^\d{4}-\d{2}-\d{2}$/.test(ymd) ? ymd : null;
   }
 
-  private estadoCuentaStorageKey(propiedadId: string): string {
-    return `legal.estadoCuentaFiles.${propiedadId}`;
+  private estadoCuentaStorageKey(cuentaId: string): string {
+    return `legal.estadoCuentaFiles.${cuentaId}`;
   }
 
-  private saldoInicialStorageKey(propiedadId: string): string {
-    return `legal.saldoInicial.${propiedadId}`;
+  private saldoInicialStorageKey(cuentaId: string): string {
+    return `legal.saldoInicial.${cuentaId}`;
   }
 
-  private readSaldoInicialFijo(propiedadId: string): number | null {
+  private readSaldoInicialFijo(cuentaId: string): number | null {
     const storage = this.getLocalStorage();
     if (!storage) return null;
-    const raw = storage.getItem(this.saldoInicialStorageKey(propiedadId));
+    const raw = storage.getItem(this.saldoInicialStorageKey(cuentaId));
     if (raw == null || raw.trim() === '') return null;
     const value = Number(raw);
     return Number.isFinite(value) ? Math.max(0, value) : null;
   }
 
-  private writeSaldoInicialFijo(propiedadId: string, value: number): void {
+  private writeSaldoInicialFijo(cuentaId: string, value: number): void {
     const storage = this.getLocalStorage();
     if (!storage) return;
     const numeric = Number(value);
     if (!Number.isFinite(numeric)) return;
-    storage.setItem(this.saldoInicialStorageKey(propiedadId), String(Math.max(0, numeric)));
+    storage.setItem(this.saldoInicialStorageKey(cuentaId), String(Math.max(0, numeric)));
   }
 
   private getLocalStorage(): Storage | null {
@@ -1252,9 +1353,9 @@ export class DataService {
     return storage;
   }
 
-  private readEstadoCuentaFilesFromStorage(propiedadId: string): EstadoCuentaFile[] {
+  private readEstadoCuentaFilesFromStorage(cuentaId: string): EstadoCuentaFile[] {
     if (typeof globalThis.localStorage === 'undefined') return [];
-    const raw = globalThis.localStorage.getItem(this.estadoCuentaStorageKey(propiedadId));
+    const raw = globalThis.localStorage.getItem(this.estadoCuentaStorageKey(cuentaId));
     if (!raw) return [];
     try {
       const parsed = JSON.parse(raw) as EstadoCuentaFileMeta[];
@@ -1263,7 +1364,7 @@ export class DataService {
         .filter((f) => Boolean(f?.id && f?.nombre && f?.fecha_subida))
         .map((f) => ({
           id: f.id,
-          propiedad_id: propiedadId,
+          cuenta_id: cuentaId,
           nombre: f.nombre,
           tamano_bytes: Number(f.tamano_bytes) || 0,
           mime_type: String(f.mime_type || 'application/octet-stream'),
@@ -1275,18 +1376,18 @@ export class DataService {
     }
   }
 
-  private writeEstadoCuentaFilesToStorage(propiedadId: string, files: EstadoCuentaFile[]): void {
+  private writeEstadoCuentaFilesToStorage(cuentaId: string, files: EstadoCuentaFile[]): void {
     if (typeof globalThis.localStorage === 'undefined') return;
     const serialized: EstadoCuentaFileMeta[] = files.map((f) => ({
       id: f.id,
-      propiedad_id: propiedadId,
+      cuenta_id: cuentaId,
       nombre: f.nombre,
       tamano_bytes: f.tamano_bytes,
       mime_type: f.mime_type,
       fecha_subida: f.fecha_subida,
       notas: f.notas,
     }));
-    globalThis.localStorage.setItem(this.estadoCuentaStorageKey(propiedadId), JSON.stringify(serialized));
+    globalThis.localStorage.setItem(this.estadoCuentaStorageKey(cuentaId), JSON.stringify(serialized));
   }
 
   private createMockFileId(): string {

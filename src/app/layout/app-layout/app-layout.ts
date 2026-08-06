@@ -20,7 +20,7 @@ import { AuthService } from '../../core/services/auth.service';
         >
           <span class="text-primary-foreground font-bold text-lg">L</span>
         </a>
-        @if (auth.isAdmin()) {
+        @if (auth.isStaff()) {
           <nav class="flex items-center gap-1 flex-1 min-w-0 flex-wrap">
             <a
               routerLink="/dashboard"
@@ -48,6 +48,16 @@ import { AuthService } from '../../core/services/auth.service';
               <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="shrink-0"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></svg>
               Informes
             </a>
+            @if (auth.isSuperAdmin()) {
+              <a
+                routerLink="/usuarios"
+                routerLinkActive="bg-primary text-primary-foreground shadow-sm"
+                class="nav-pill px-3 py-2 sm:px-4 rounded-full flex items-center gap-1.5 sm:gap-2 text-xs sm:text-sm font-medium text-muted-foreground hover:text-primary hover:bg-secondary shrink-0"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="shrink-0"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                Usuarios
+              </a>
+            }
           </nav>
         } @else if (auth.isCliente()) {
           <nav class="flex items-center gap-1 flex-1 min-w-0">

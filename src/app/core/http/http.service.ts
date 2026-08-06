@@ -75,6 +75,14 @@ export class HttpService {
     );
   }
 
+  /**
+   * DELETE con interceptores que espera JSON en la respuesta (p. ej. soft-delete que
+   * devuelve la entidad actualizada).
+   */
+  deleteJson<T>(path: string, options?: object): Promise<T> {
+    return firstValueFrom(this.http.delete<T>(this.toUrl(path), options));
+  }
+
   /** Helper para endpoints que responden `T[]` o `{ items: T[] }`. */
   async getItems<T>(path: string, options?: object): Promise<T[]> {
     const response = await this.get<{ items?: T[] } | T[]>(path, options);

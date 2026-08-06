@@ -164,18 +164,18 @@ export class GraficosReportDialog {
 
   totalCartera = (): number => this.data.getTotalCartera();
   clientesCount = (): number => this.data.mockClientes.length;
-  propiedadesCount = (): number => this.data.mockPropiedades.length;
+  propiedadesCount = (): number => this.data.mockCuentas.length;
 
   estadoTable(): { estado: string; label: string; cantidad: number }[] {
     const counts =
-      this.data.mockCuentas.length > 0
-        ? this.data.mockCuentas.reduce<Record<string, number>>((acc, c) => {
-            const label = this.data.estadoCuentaLabels[c.estado] ?? c.estado;
+      this.data.mockProcesosLegales.length > 0
+        ? this.data.mockProcesosLegales.reduce<Record<string, number>>((acc, c) => {
+            const label = this.data.estadoProcesoLegalLabels[c.estado] ?? c.estado;
             acc[label] = (acc[label] ?? 0) + 1;
             return acc;
           }, {})
-        : this.data.mockPropiedades.reduce<Record<string, number>>((acc, p) => {
-            const label = this.data.getDeudaActualParaPropiedad(p) > 0 ? 'Con deuda' : 'Saldada';
+        : this.data.mockCuentas.reduce<Record<string, number>>((acc, p) => {
+            const label = this.data.getDeudaActualParaCuenta(p) > 0 ? 'Con deuda' : 'Saldada';
             acc[label] = (acc[label] ?? 0) + 1;
             return acc;
           }, {});
@@ -188,8 +188,8 @@ export class GraficosReportDialog {
   }
 
   tipoTable(): { tipo: string; label: string; cantidad: number }[] {
-    const counts = this.data.mockPropiedades.reduce<Record<string, number>>((acc, p) => {
-      const label = this.data.tipoPropiedadLabels[p.tipo_propiedad] ?? p.tipo_propiedad;
+    const counts = this.data.mockCuentas.reduce<Record<string, number>>((acc, p) => {
+      const label = this.data.tipoCuentaLabels[p.tipo_cuenta] ?? p.tipo_cuenta;
       acc[label] = (acc[label] ?? 0) + 1;
       return acc;
     }, {});

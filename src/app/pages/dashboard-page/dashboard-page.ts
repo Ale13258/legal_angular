@@ -4,9 +4,9 @@ import { DataService } from '../../core/services/data.service';
 import { BalanceCard } from '../../shared/balance-card/balance-card';
 import { StatusBadge } from '../../shared/status-badge/status-badge';
 import { fadeInUp, fadeInUpStagger } from '../../core/animations/animations';
-import type { Cliente, Cuenta } from '../../core/models';
+import type { Cliente, ProcesoLegal } from '../../core/models';
 
-type DashboardRow = { cliente: Cliente; cuenta: Cuenta | null };
+type DashboardRow = { cliente: Cliente; cuenta: ProcesoLegal | null };
 
 @Component({
   selector: 'app-dashboard-page',
@@ -67,7 +67,7 @@ type DashboardRow = { cliente: Cliente; cuenta: Cuenta | null };
           />
           <app-balance-card
             label="CUENTAS ACTIVAS"
-            [amount]="cuentasActivas()"
+            [amount]="procesosLegalesActivos()"
             [isCurrency]="false"
             icon="cuentas"
             [accentLeft]="true"
@@ -143,7 +143,7 @@ type DashboardRow = { cliente: Cliente; cuenta: Cuenta | null };
                     <td class="px-6 py-4">
                       @if (row.cuenta) {
                         <app-status-badge
-                          [label]="data.tipoCuentaLabels[row.cuenta.tipo]"
+                          [label]="data.tipoProcesoLegalLabels[row.cuenta.tipo]"
                           [variant]="
                             row.cuenta.tipo === 'juridica'
                               ? 'juridica'
@@ -160,7 +160,7 @@ type DashboardRow = { cliente: Cliente; cuenta: Cuenta | null };
                       @if (row.cuenta) {
                         @if (row.cuenta.estado) {
                           <app-status-badge
-                            [label]="data.estadoCuentaLabels[row.cuenta.estado]"
+                            [label]="data.estadoProcesoLegalLabels[row.cuenta.estado]"
                             [variant]="
                               row.cuenta.estado === 'activa'
                                 ? 'activa'
@@ -207,8 +207,8 @@ export class DashboardPage {
   filterTipo = signal('todos');
 
   private cuentasByClienteId = computed(() => {
-    const map = new Map<string, Cuenta[]>();
-    for (const cu of this.data.mockCuentas) {
+    const map = new Map<string, ProcesoLegal[]>();
+    for (const cu of this.data.mockProcesosLegales) {
       const list = map.get(cu.cliente_id);
       if (list) list.push(cu);
       else map.set(cu.cliente_id, [cu]);
@@ -257,7 +257,7 @@ export class DashboardPage {
 
   totalCartera = computed(() => this.data.getTotalCartera());
   clientesActivos = computed(() => this.data.getClientesActivos());
-  cuentasActivas = computed(() => this.data.getCuentasActivas());
+  procesosLegalesActivos = computed(() => this.data.getProcesosLegalesActivos());
 
   constructor() {
     void this.init();

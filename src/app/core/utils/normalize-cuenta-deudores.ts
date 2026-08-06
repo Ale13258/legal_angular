@@ -1,4 +1,4 @@
-import type { DeudorCobro, Propiedad, TipoPersona } from '../models';
+import type { DeudorCobro, Cuenta, TipoPersona } from '../models';
 
 function asTipoPersona(value: unknown): TipoPersona {
   return value === 'juridica' ? 'juridica' : 'natural';
@@ -43,7 +43,7 @@ function normalizeDeudor(raw: Partial<DeudorCobro> & { email?: string }): Deudor
 /** Construye la lista de deudores desde `deudores` o, en legacy, desde `cobro_*`. */
 export function resolveDeudores(
   p: Pick<
-    Propiedad,
+    Cuenta,
     'deudores' | 'cobro_nombre' | 'cobro_tipo_persona' | 'cobro_documento' | 'cobro_email'
   >,
 ): DeudorCobro[] {
@@ -64,7 +64,7 @@ export function resolveDeudores(
 }
 
 export function mirrorCobroFromDeudores(deudores: DeudorCobro[]): Pick<
-  Propiedad,
+  Cuenta,
   'cobro_nombre' | 'cobro_tipo_persona' | 'cobro_documento' | 'cobro_email'
 > {
   const first = deudores[0];
@@ -85,20 +85,20 @@ export function mirrorCobroFromDeudores(deudores: DeudorCobro[]): Pick<
 }
 
 /** Normaliza `deudores` y sincroniza el espejo `cobro_*` del deudor principal. */
-export function normalizePropiedadDeudores<T extends Propiedad>(propiedad: T): T {
-  const deudores = resolveDeudores(propiedad);
+export function normalizeCuentaDeudores<T extends Cuenta>(cuenta: T): T {
+  const deudores = resolveDeudores(cuenta);
   const cobro = mirrorCobroFromDeudores(deudores);
   return {
-    ...propiedad,
+    ...cuenta,
     deudores,
     ...cobro,
   };
 }
 
 /** Emails únicos de todos los deudores (orden: deudor 0…n, emails internos). */
-export function collectPropiedadEmails(
+export function collectCuentaEmails(
   p: Pick<
-    Propiedad,
+    Cuenta,
     'deudores' | 'cobro_nombre' | 'cobro_tipo_persona' | 'cobro_documento' | 'cobro_email'
   >,
 ): string[] {

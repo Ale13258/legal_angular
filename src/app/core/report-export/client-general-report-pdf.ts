@@ -1,10 +1,10 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import type { Cliente, Propiedad } from '../models';
+import type { Cliente, Cuenta } from '../models';
 import type { DataService } from '../services/data.service';
 
 export type ClientReportResumenRow = {
-  propiedad: Propiedad;
+  cuenta: Cuenta;
   identificador: string;
   documentoLabel: string;
   correo: string;
@@ -16,18 +16,18 @@ export type ClientReportResumenRow = {
 
 export function buildClientReportResumenRows(
   data: DataService,
-  propiedades: Propiedad[],
+  cuentas: Cuenta[],
 ): ClientReportResumenRow[] {
-  return propiedades.map((p) => {
-    const r = data.getResumenMoraCobroParaPropiedad(p);
+  return cuentas.map((p) => {
+    const r = data.getResumenMoraCobroParaCuenta(p);
     const docLabel = p.cobro_tipo_persona === 'natural' ? 'CC' : 'NIT';
     const documento = p.cobro_documento?.trim() || '—';
     return {
-      propiedad: p,
+      cuenta: p,
       identificador: p.identificador,
       documentoLabel: documento === '—' ? '—' : `${docLabel} ${documento}`,
       correo: p.cobro_email?.trim() || '—',
-      deuda: data.getDeudaActualParaPropiedad(p),
+      deuda: data.getDeudaActualParaCuenta(p),
       edad_mora_dias: r.edad_mora_dias,
       fecha_inicio_cobro: r.fecha_inicio_cobro,
       fecha_fin_cobro: r.fecha_fin_cobro,
@@ -35,7 +35,7 @@ export function buildClientReportResumenRows(
   });
 }
 
-export function resumenPropiedadPdfRow(data: DataService, row: ClientReportResumenRow): string[] {
+export function resumenCuentaPdfRow(data: DataService, row: ClientReportResumenRow): string[] {
   const mora = data
     .formatResumenMoraTooltip({
       edad_mora_dias: row.edad_mora_dias,
@@ -45,7 +45,7 @@ export function resumenPropiedadPdfRow(data: DataService, row: ClientReportResum
     .replace(/\n/g, ' | ');
   return [
     row.identificador,
-    data.formatDeudorCorto(row.propiedad),
+    data.formatDeudorCorto(row.cuenta),
     row.documentoLabel,
     row.correo,
     mora,
@@ -56,12 +56,12 @@ export function resumenPropiedadPdfRow(data: DataService, row: ClientReportResum
 export function downloadClientGeneralReportPdf(options: {
   data: DataService;
   cliente: Cliente;
-  propiedades: Propiedad[];
+  cuentas: Cuenta[];
   titulo?: string;
   notas?: string;
   fecha?: string;
 }): void {
-  const { data, cliente, propiedades } = options;
+  const { data, cliente, cuentas } = options;
   const tituloDoc = options.titulo?.trim() || `Informe General – ${cliente.nombre}`;
   const fecha =
     options.fecha ??
@@ -72,13 +72,13 @@ export function downloadClientGeneralReportPdf(options: {
     });
   const notas = options.notas?.trim();
 
-  const totalCobrado = propiedades.reduce((sum, p) => sum + data.getTotalCobradoParaPropiedad(p), 0);
-  const totalPagado = propiedades.reduce((sum, p) => sum + data.getTotalPagadoParaPropiedad(p), 0);
-  const saldo = propiedades.reduce((sum, p) => sum + data.getDeudaActualParaPropiedad(p), 0);
-  const resumen = buildClientReportResumenRows(data, propiedades);
-  const transacciones = propiedades.flatMap((p) => {
-    const hist = data.getHistorialByPropiedad(p.id);
-    return hist.map((h) => ({ ...h, propiedad: p.identificador }));
+  const totalCobrado = cuentas.reduce((sum, p) => sum + data.getTotalCobradoParaCuenta(p), 0);
+  const totalPagado = cuentas.reduce((sum, p) => sum + data.getTotalPagadoParaCuenta(p), 0);
+  const saldo = cuentas.reduce((sum, p) => sum + data.getDeudaActualParaCuenta(p), 0);
+  const resumen = buildClientReportResumenRows(data, cuentas);
+  const transacciones = cuentas.flatMap((p) => {
+    const hist = data.getHistorialByCuenta(p.id);
+    return hist.map((h) => ({ ...h, cuenta: p.identificador }));
   });
 
   const doc = new jsPDF();
@@ -107,13 +107,13 @@ export function downloadClientGeneralReportPdf(options: {
   }
 
   doc.setFontSize(11);
-  doc.text('Por propiedad (unidad)', 14, startY);
+  doc.text('Por cuenta (unidad)', 14, startY);
   doc.setFontSize(10);
   startY += 6;
   autoTable(doc, {
     startY,
     head: [['Unidad', 'Deudor', 'Documento', 'Correo', 'Edad en mora', 'Deuda a la fecha']],
-    body: resumen.map((row) => resumenPropiedadPdfRow(data, row)),
+    body: resumen.map((row) => resumenCuentaPdfRow(data, row)),
     styles: { fontSize: 8 },
     headStyles: { fillColor: [107, 60, 200] },
   });
@@ -125,9 +125,9 @@ export function downloadClientGeneralReportPdf(options: {
   doc.setFontSize(10);
   autoTable(doc, {
     startY: yAfterResumen + 14,
-    head: [['Propiedad', 'Periodo', 'Concepto', 'Cobrado', 'Pagado', 'Estado']],
+    head: [['Cuenta', 'Periodo', 'Concepto', 'Cobrado', 'Pagado', 'Estado']],
     body: transacciones.map((h) => [
-      h.propiedad,
+      h.cuenta,
       h.periodo,
       data.conceptoLabels[h.concepto],
       data.formatCurrency(h.valor_cobrado),

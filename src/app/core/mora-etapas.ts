@@ -33,7 +33,7 @@ const ETIQUETAS_CORTAS: Record<EtapaCobranzaCodigo, string> = {
 };
 
 /**
- * @param dias Edad en mora en días (típicamente `Propiedad.edad_mora_dias` o equivalente).
+ * @param dias Edad en mora en días (típicamente `Cuenta.edad_mora_dias` o equivalente).
  */
 export function clasificarEtapaCobranza(dias: number | null | undefined): EtapaCobranzaCodigo {
   if (dias == null || !Number.isFinite(Number(dias))) return 'sin_dato';

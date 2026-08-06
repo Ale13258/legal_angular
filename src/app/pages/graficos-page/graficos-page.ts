@@ -104,7 +104,7 @@ import type { ChartConfiguration } from 'chart.js';
               </div>
             } @else {
               <div class="h-[250px] rounded-xl bg-muted/30 flex items-center justify-center text-sm text-muted-foreground text-center px-6">
-                No hay propiedades suficientes para graficar.
+                No hay cuentas suficientes para graficar.
               </div>
             }
           </div>
@@ -146,28 +146,28 @@ export class GraficosPage {
 
   totalCartera = computed(() => this.data.getTotalCartera());
   clientesCount = computed(() => this.data.mockClientes.length);
-  propiedadesCount = computed(() => this.data.mockPropiedades.length);
+  propiedadesCount = computed(() => this.data.mockCuentas.length);
 
   estadoCounts = computed(() => {
-    const cuentas = this.data.mockCuentas;
+    const cuentas = this.data.mockProcesosLegales;
     if (cuentas.length > 0) {
       return cuentas.reduce<Record<string, number>>((acc, c) => {
-        acc[this.data.estadoCuentaLabels[c.estado] ?? c.estado] =
-          (acc[this.data.estadoCuentaLabels[c.estado] ?? c.estado] ?? 0) + 1;
+        acc[this.data.estadoProcesoLegalLabels[c.estado] ?? c.estado] =
+          (acc[this.data.estadoProcesoLegalLabels[c.estado] ?? c.estado] ?? 0) + 1;
         return acc;
       }, {});
     }
 
-    return this.data.mockPropiedades.reduce<Record<string, number>>((acc, p) => {
-      const label = this.data.getDeudaActualParaPropiedad(p) > 0 ? 'Con deuda' : 'Saldada';
+    return this.data.mockCuentas.reduce<Record<string, number>>((acc, p) => {
+      const label = this.data.getDeudaActualParaCuenta(p) > 0 ? 'Con deuda' : 'Saldada';
       acc[label] = (acc[label] ?? 0) + 1;
       return acc;
     }, {});
   });
 
   tipoCounts = computed(() =>
-    this.data.mockPropiedades.reduce<Record<string, number>>((acc, p) => {
-      const label = this.data.tipoPropiedadLabels[p.tipo_propiedad] ?? p.tipo_propiedad;
+    this.data.mockCuentas.reduce<Record<string, number>>((acc, p) => {
+      const label = this.data.tipoCuentaLabels[p.tipo_cuenta] ?? p.tipo_cuenta;
       acc[label] = (acc[label] ?? 0) + 1;
       return acc;
     }, {})

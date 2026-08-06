@@ -1,6 +1,6 @@
 import { Component, effect, input, output, signal } from '@angular/core';
 import { DataService } from '../../core/services/data.service';
-import type { Cuenta, EstadoCuenta, EtapaProceso, Propiedad, TipoCuenta } from '../../core/models';
+import type { ProcesoLegal, EstadoProcesoLegal, EtapaProceso, Cuenta, TipoProcesoLegal } from '../../core/models';
 import {
   ETAPA_PROCESO_DEFAULT,
   ETAPAS_PROCESO_ORDENADAS,
@@ -8,7 +8,7 @@ import {
 } from '../../core/proceso-etapas';
 
 @Component({
-  selector: 'app-crear-cuenta-dialog',
+  selector: 'app-crear-proceso-legal-dialog',
   standalone: true,
   template: `
     <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -39,8 +39,8 @@ import {
             <label class="block text-sm font-medium text-foreground mb-1.5">Número de cuenta</label>
             <input
               type="text"
-              [value]="numeroCuenta()"
-              (input)="numeroCuenta.set($any($event.target).value)"
+              [value]="numeroProceso()"
+              (input)="numeroProceso.set($any($event.target).value)"
               placeholder="Ej: CTA-2026-001"
               class="w-full rounded-xl border border-input bg-background px-4 py-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary"
             />
@@ -88,14 +88,14 @@ import {
 
           @if (!cuenta()) {
             <div>
-              <label class="block text-sm font-medium text-foreground mb-1.5">Propiedad (opcional)</label>
+              <label class="block text-sm font-medium text-foreground mb-1.5">Cuenta (opcional)</label>
               <select
-                [value]="propiedadId()"
-                (change)="propiedadId.set($any($event.target).value)"
+                [value]="cuentaId()"
+                (change)="cuentaId.set($any($event.target).value)"
                 class="w-full rounded-xl border border-input bg-background px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
               >
                 <option value="">Sin vincular</option>
-                @for (p of propiedades(); track p.id) {
+                @for (p of cuentas(); track p.id) {
                   <option [value]="p.id">{{ p.identificador }} — {{ p.direccion }}</option>
                 }
               </select>
@@ -128,34 +128,34 @@ import {
     </div>
   `,
 })
-export class CrearCuentaDialog {
+export class CrearProcesoLegalDialog {
   open = input<boolean>(true);
   clienteId = input.required<string>();
-  propiedades = input<Propiedad[]>([]);
-  cuenta = input<Cuenta | null>(null);
+  cuentas = input<Cuenta[]>([]);
+  cuenta = input<ProcesoLegal | null>(null);
   /** Lo incrementa el padre en cada apertura para hidratar el formulario con los datos vigentes. */
   cuentaFormNonce = input(0);
   openChange = output<boolean>();
   created = output<void>();
 
-  numeroCuenta = signal('');
-  tipo = signal<TipoCuenta>('juridica');
-  estado = signal<EstadoCuenta>('activa');
+  numeroProceso = signal('');
+  tipo = signal<TipoProcesoLegal>('juridica');
+  estado = signal<EstadoProcesoLegal>('activa');
   etapa = signal<EtapaProceso>(ETAPA_PROCESO_DEFAULT);
-  /** '' = sin propiedad */
-  propiedadId = signal('');
+  /** '' = sin cuenta */
+  cuentaId = signal('');
 
   saving = signal(false);
   errorMsg = signal<string | null>(null);
 
-  tipoOpciones: Array<{ value: TipoCuenta; label: string }> = [
+  tipoOpciones: Array<{ value: TipoProcesoLegal; label: string }> = [
     { value: 'juridica', label: 'JURÍDICO' },
     { value: 'extrajudicial', label: 'PRE-JURÍDICO' },
     { value: 'acuerdo_de_pago', label: 'ACUERDO DE PAGO' },
   ];
 
-  estadoOpciones: Array<{ value: EstadoCuenta; label: string }> = [
-
+  estadoOpciones: Array<{ value: EstadoProcesoLegal; label: string }> = [
+    { value: 'activa', label: 'ACTIVA' },
     { value: 'en_proceso', label: 'EN PROCESO' },
     { value: 'cerrada', label: 'FINALIZADO' },
   ];
@@ -179,29 +179,29 @@ export class CrearCuentaDialog {
       }
       this.lastSyncedFormKey = key;
       if (current) {
-        this.applyCuentaToForm(current);
+        this.applyProcesoLegalToForm(current);
       } else {
         this.reset();
       }
     });
   }
 
-  private applyCuentaToForm(c: Cuenta): void {
-    this.numeroCuenta.set(String(c.numero_cuenta ?? '').trim());
+  private applyProcesoLegalToForm(c: ProcesoLegal): void {
+    this.numeroProceso.set(String(c.numero_cuenta ?? '').trim());
     this.tipo.set(this.coerceTipo(c.tipo));
     this.estado.set(this.coerceEstado(c.estado));
     this.etapa.set(this.coerceEtapa(c.etapa_proceso));
-    const pid = c.propiedad_id;
-    this.propiedadId.set(pid != null && String(pid).trim() !== '' ? String(pid) : '');
+    const pid = c.cuenta_id;
+    this.cuentaId.set(pid != null && String(pid).trim() !== '' ? String(pid) : '');
   }
 
-  private coerceTipo(v: unknown): TipoCuenta {
-    const s = String(v ?? '').trim() as TipoCuenta;
+  private coerceTipo(v: unknown): TipoProcesoLegal {
+    const s = String(v ?? '').trim() as TipoProcesoLegal;
     return this.tipoOpciones.some((o) => o.value === s) ? s : 'juridica';
   }
 
-  private coerceEstado(v: unknown): EstadoCuenta {
-    const s = String(v ?? '').trim() as EstadoCuenta;
+  private coerceEstado(v: unknown): EstadoProcesoLegal {
+    const s = String(v ?? '').trim() as EstadoProcesoLegal;
     return this.estadoOpciones.some((o) => o.value === s) ? s : 'activa';
   }
 
@@ -215,7 +215,7 @@ export class CrearCuentaDialog {
   }
 
   async guardar(): Promise<void> {
-    const num = this.numeroCuenta().trim();
+    const num = this.numeroProceso().trim();
     if (!num) {
       this.errorMsg.set('Indica el número de cuenta.');
       return;
@@ -223,24 +223,24 @@ export class CrearCuentaDialog {
     this.errorMsg.set(null);
     this.saving.set(true);
     try {
-      const pid = this.propiedadId().trim();
+      const pid = this.cuentaId().trim();
       const current = this.cuenta();
       if (current) {
-        await this.data.updateCuenta(current.id, {
+        await this.data.updateProcesoLegal(current.id, {
           numero_cuenta: num,
           tipo: this.tipo(),
           estado: this.estado(),
           etapa_proceso: this.etapa(),
-          ...(pid ? { propiedad_id: pid } : {}),
+          ...(pid ? { cuenta_id: pid } : {}),
         });
       } else {
-        await this.data.createCuenta({
+        await this.data.createProcesoLegal({
           cliente_id: this.clienteId(),
           numero_cuenta: num,
           tipo: this.tipo(),
           estado: this.estado(),
           etapa_proceso: this.etapa(),
-          ...(pid ? { propiedad_id: pid } : {}),
+          ...(pid ? { cuenta_id: pid } : {}),
         });
       }
       this.reset();
@@ -258,11 +258,11 @@ export class CrearCuentaDialog {
   }
 
   private reset(): void {
-    this.numeroCuenta.set('');
+    this.numeroProceso.set('');
     this.tipo.set('juridica');
     this.estado.set('activa');
     this.etapa.set(ETAPA_PROCESO_DEFAULT);
-    this.propiedadId.set('');
+    this.cuentaId.set('');
     this.errorMsg.set(null);
   }
 }
