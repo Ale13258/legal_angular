@@ -339,6 +339,7 @@ export class AuthService {
   defaultRouteAfterLogin(): string {
     const u = this.currentUser();
     if (!u) return '/login';
+    if (u.role === 'super_admin') return '/usuarios';
     return isStaffRole(u.role) ? '/dashboard' : '/mi-cartera';
   }
 

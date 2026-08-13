@@ -118,3 +118,32 @@ export function collectCuentaEmails(
   }
   return out;
 }
+
+/** Nombres de deudores unidos para saludo ("A", "A y B", "A, B y C"). */
+export function formatNombresDeudores(
+  p: Pick<
+    Cuenta,
+    'deudores' | 'cobro_nombre' | 'cobro_tipo_persona' | 'cobro_documento' | 'cobro_email'
+  >,
+): string {
+  const names = resolveDeudores(p)
+    .map((d) => d.nombre.trim())
+    .filter(Boolean);
+  if (!names.length) {
+    return p.cobro_nombre?.trim() ?? '';
+  }
+  if (names.length === 1) return names[0]!;
+  if (names.length === 2) return `${names[0]} y ${names[1]}`;
+  return `${names.slice(0, -1).join(', ')} y ${names[names.length - 1]}`;
+}
+
+/** "Estimado(a)" si hay un deudor; "Estimados(as)" si hay varios. */
+export function saludoEstimadoDeudores(
+  p: Pick<
+    Cuenta,
+    'deudores' | 'cobro_nombre' | 'cobro_tipo_persona' | 'cobro_documento' | 'cobro_email'
+  >,
+): string {
+  const count = resolveDeudores(p).filter((d) => d.nombre.trim()).length;
+  return count > 1 ? 'Estimados(as)' : 'Estimado(a)';
+}

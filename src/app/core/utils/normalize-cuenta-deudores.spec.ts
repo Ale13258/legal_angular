@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 import type { Cuenta } from '../models';
 import {
   collectCuentaEmails,
+  formatNombresDeudores,
   mirrorCobroFromDeudores,
   normalizeCuentaDeudores,
   resolveDeudores,
+  saludoEstimadoDeudores,
 } from './normalize-cuenta-deudores';
 
 const baseCuenta = {
@@ -108,5 +110,32 @@ describe('normalize-cuenta-deudores', () => {
       cobro_documento: '900',
       cobro_email: 'uno@test.com',
     });
+  });
+
+  it('formatNombresDeudores une todos los nombres', () => {
+    const cuenta = {
+      cobro_nombre: 'Solo legado',
+      cobro_tipo_persona: 'natural' as const,
+      cobro_documento: '1',
+      cobro_email: 'a@test.com',
+      deudores: [
+        {
+          nombre: 'HELENA LUCIA CARVAJAL HURTADO',
+          tipo_persona: 'natural' as const,
+          documento: '1',
+          emails: ['hmvsas1@gmail.com'],
+        },
+        {
+          nombre: 'MIGUEL CARVAJAL MANGONES',
+          tipo_persona: 'natural' as const,
+          documento: '2',
+          emails: ['micarman50@hotmail.com'],
+        },
+      ],
+    };
+    expect(formatNombresDeudores(cuenta)).toBe(
+      'HELENA LUCIA CARVAJAL HURTADO y MIGUEL CARVAJAL MANGONES',
+    );
+    expect(saludoEstimadoDeudores(cuenta)).toBe('Estimados(as)');
   });
 });

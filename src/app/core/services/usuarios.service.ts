@@ -56,8 +56,19 @@ export class UsuariosService {
     return this.http.post<StaffUsuario>(`/usuarios/${id}/resend-invitation`, {});
   }
 
+  /** Soft-deactivate: POST /usuarios/:id/deactivate → 200 + usuario. */
   async deactivate(id: string): Promise<StaffUsuario> {
-    return this.http.deleteJson<StaffUsuario>(`/usuarios/${id}`);
+    return this.http.post<StaffUsuario>(`/usuarios/${id}/deactivate`, {});
+  }
+
+  /** Reactivar inactivo: POST /usuarios/:id/activate → 200 + usuario. */
+  async activate(id: string): Promise<StaffUsuario> {
+    return this.http.post<StaffUsuario>(`/usuarios/${id}/activate`, {});
+  }
+
+  /** Hard delete: DELETE /usuarios/:id → 204. */
+  async remove(id: string): Promise<void> {
+    await this.http.delete(`/usuarios/${id}`);
   }
 
   extractErrorMessage(error: unknown, fallback: string): string {

@@ -1,6 +1,7 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { DataService } from '../../core/services/data.service';
+import { AuthService } from '../../core/services/auth.service';
 import { BalanceCard } from '../../shared/balance-card/balance-card';
 import { StatusBadge } from '../../shared/status-badge/status-badge';
 import { fadeInUp, fadeInUpStagger } from '../../core/animations/animations';
@@ -33,6 +34,14 @@ type DashboardRow = { cliente: Cliente; cuenta: ProcesoLegal | null };
               >
                 + Nuevo Cliente
               </a>
+              @if (auth.isSuperAdmin()) {
+                <a
+                  routerLink="/usuarios"
+                  class="nav-pill rounded-xl bg-primary-foreground text-primary px-4 py-2 font-medium hover:opacity-95"
+                >
+                  Usuarios
+                </a>
+              }
               <a
                 routerLink="/graficos"
                 class="nav-pill rounded-xl border-2 border-primary-foreground/50 text-primary-foreground px-4 py-2 font-medium hover:bg-primary-foreground/10"
@@ -200,6 +209,7 @@ type DashboardRow = { cliente: Cliente; cuenta: ProcesoLegal | null };
 })
 export class DashboardPage {
   protected readonly data = inject(DataService);
+  protected readonly auth = inject(AuthService);
   readonly loading = signal(true);
   readonly error = signal<string | null>(null);
   search = signal('');

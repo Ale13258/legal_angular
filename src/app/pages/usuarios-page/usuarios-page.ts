@@ -3,6 +3,7 @@ import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { fadeInUp } from '../../core/animations/animations';
 import type { InvitableStaffRole } from '../../core/services/auth.service';
+import { AuthService } from '../../core/services/auth.service';
 import {
   UsuariosService,
   type StaffUsuario,
@@ -33,18 +34,26 @@ import {
         </div>
       </div>
 
-      <div class="page-container -mt-6 space-y-6 max-w-5xl">
-        @if (error()) {
-          <div class="rounded-xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-            {{ error() }}
-          </div>
-        }
-        @if (success()) {
-          <div class="rounded-xl border border-primary/30 bg-primary/10 px-4 py-3 text-sm text-foreground">
-            {{ success() }}
-          </div>
-        }
+      @if (error() || success()) {
+        <div class="page-container max-w-5xl mt-4 space-y-3 relative z-10">
+          @if (error()) {
+            <div class="rounded-xl border border-destructive/40 bg-card px-4 py-3 text-sm text-destructive shadow-card">
+              {{ error() }}
+            </div>
+          }
+          @if (success()) {
+            <div class="rounded-xl border border-primary/30 bg-card px-4 py-3 text-sm text-foreground shadow-card">
+              {{ success() }}
+            </div>
+          }
+        </div>
+      }
 
+      <div
+        class="page-container space-y-6 max-w-5xl relative z-10"
+        [class.-mt-6]="!error() && !success()"
+        [class.mt-6]="!!error() || !!success()"
+      >
         <section
           [@fadeInUp]="{ value: '', params: { delay: 0, duration: 450, offset: 10, ease: 'ease-out' } }"
           class="bg-card rounded-2xl shadow-card p-4 sm:p-6 border border-border/50"
@@ -196,14 +205,34 @@ import {
                                 Reenviar
                               </button>
                             }
-                            @if (u.status === 'active') {
+                            @if (canDeactivate(u)) {
                               <button
                                 type="button"
                                 (click)="confirmDeactivate(u)"
-                                [disabled]="busyId() === u.id"
-                                class="rounded-lg border border-destructive/40 text-destructive px-3 py-1.5 text-xs font-medium hover:bg-destructive/10 disabled:opacity-60"
+                                [disabled]="busyId() === u.id || isCurrentUser(u)"
+                                class="rounded-lg border border-amber-500/50 text-amber-700 dark:text-amber-300 px-3 py-1.5 text-xs font-medium hover:bg-amber-500/10 disabled:opacity-60"
                               >
                                 Desactivar
+                              </button>
+                            }
+                            @if (canActivate(u)) {
+                              <button
+                                type="button"
+                                (click)="confirmActivate(u)"
+                                [disabled]="busyId() === u.id"
+                                class="rounded-lg border border-emerald-600/40 text-emerald-700 dark:text-emerald-300 px-3 py-1.5 text-xs font-medium hover:bg-emerald-500/10 disabled:opacity-60"
+                              >
+                                Activar
+                              </button>
+                            }
+                            @if (canDelete(u)) {
+                              <button
+                                type="button"
+                                (click)="confirmDelete(u)"
+                                [disabled]="busyId() === u.id || isCurrentUser(u)"
+                                class="rounded-lg border border-destructive/40 text-destructive px-3 py-1.5 text-xs font-medium hover:bg-destructive/10 disabled:opacity-60"
+                              >
+                                Eliminar
                               </button>
                             }
                           }
@@ -224,7 +253,7 @@ import {
           <div class="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-card">
             <h2 class="font-display text-xl font-semibold text-foreground mb-2">Desactivar usuario</h2>
             <p class="text-sm text-muted-foreground mb-6">
-              ¿Desactivar a <strong>{{ target.email }}</strong>? No podrá iniciar sesión y se cerrarán sus sesiones activas.
+              ¿Desactivar a <strong>{{ target.email }}</strong>? No podrá iniciar sesión y se cerrarán sus sesiones activas. El registro permanecerá en la lista como inactivo.
             </p>
             <div class="flex justify-end gap-3">
               <button
@@ -238,9 +267,67 @@ import {
                 type="button"
                 (click)="deactivate(target)"
                 [disabled]="busyId() === target.id"
-                class="rounded-xl bg-destructive text-destructive-foreground px-4 py-2 text-sm font-medium disabled:opacity-60"
+                class="rounded-xl border border-border px-4 py-2 text-sm font-medium hover:bg-muted disabled:opacity-60"
               >
                 Desactivar
+              </button>
+            </div>
+          </div>
+        </section>
+      }
+
+      @if (activateTarget(); as target) {
+        <div class="fixed inset-0 z-40 bg-black/50"></div>
+        <section class="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true">
+          <div class="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-card">
+            <h2 class="font-display text-xl font-semibold text-foreground mb-2">Activar usuario</h2>
+            <p class="text-sm text-muted-foreground mb-6">
+              ¿Reactivar a <strong>{{ target.email }}</strong>? Podrá volver a iniciar sesión con su contraseña.
+            </p>
+            <div class="flex justify-end gap-3">
+              <button
+                type="button"
+                (click)="activateTarget.set(null)"
+                class="rounded-xl border border-border px-4 py-2 text-sm font-medium hover:bg-muted"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                (click)="activate(target)"
+                [disabled]="busyId() === target.id"
+                class="rounded-xl bg-primary text-primary-foreground px-4 py-2 text-sm font-medium disabled:opacity-60"
+              >
+                Activar
+              </button>
+            </div>
+          </div>
+        </section>
+      }
+
+      @if (deleteTarget(); as target) {
+        <div class="fixed inset-0 z-40 bg-black/50"></div>
+        <section class="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true">
+          <div class="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-card">
+            <h2 class="font-display text-xl font-semibold text-foreground mb-2">Eliminar usuario</h2>
+            <p class="text-sm text-muted-foreground mb-6">
+              ¿Eliminar permanentemente a <strong>{{ target.email }}</strong>? Esta acción no se puede deshacer.
+            </p>
+            <div class="flex justify-end gap-3">
+              <button
+                type="button"
+                (click)="deleteTarget.set(null)"
+                class="rounded-xl border border-border px-4 py-2 text-sm font-medium hover:bg-muted"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                (click)="remove(target)"
+                [disabled]="busyId() === target.id"
+                class="rounded-xl bg-destructive text-destructive-foreground px-4 py-2 text-sm font-medium disabled:opacity-60"
+              >
+                Eliminar
               </button>
             </div>
           </div>
@@ -251,6 +338,7 @@ import {
 })
 export class UsuariosPage implements OnInit {
   private readonly usuariosService = inject(UsuariosService);
+  private readonly auth = inject(AuthService);
   private readonly fb = inject(FormBuilder);
 
   readonly usuarios = signal<StaffUsuario[]>([]);
@@ -264,6 +352,8 @@ export class UsuariosPage implements OnInit {
   readonly savingId = signal<string | null>(null);
   readonly busyId = signal<string | null>(null);
   readonly deactivateTarget = signal<StaffUsuario | null>(null);
+  readonly activateTarget = signal<StaffUsuario | null>(null);
+  readonly deleteTarget = signal<StaffUsuario | null>(null);
 
   readonly statusOptions: Array<{ value: StaffUsuarioStatus; label: string }> = [
     { value: 'pending', label: 'Pendiente' },
@@ -370,8 +460,44 @@ export class UsuariosPage implements OnInit {
     }
   }
 
+  /** Super admin no se desactiva ni elimina; el resto sí. */
+  canDelete(u: StaffUsuario): boolean {
+    return u.role !== 'super_admin';
+  }
+
+  canDeactivate(u: StaffUsuario): boolean {
+    if (u.role === 'super_admin') return false;
+    return u.status === 'active' || u.is_active === true;
+  }
+
+  canActivate(u: StaffUsuario): boolean {
+    if (u.role === 'super_admin') return false;
+    return u.status === 'inactive' || (u.is_active === false && u.status !== 'pending');
+  }
+
   confirmDeactivate(u: StaffUsuario): void {
+    if (!this.canDeactivate(u) || this.isCurrentUser(u)) return;
+    this.activateTarget.set(null);
+    this.deleteTarget.set(null);
     this.deactivateTarget.set(u);
+  }
+
+  confirmActivate(u: StaffUsuario): void {
+    if (!this.canActivate(u)) return;
+    this.deactivateTarget.set(null);
+    this.deleteTarget.set(null);
+    this.activateTarget.set(u);
+  }
+
+  confirmDelete(u: StaffUsuario): void {
+    if (!this.canDelete(u) || this.isCurrentUser(u)) return;
+    this.activateTarget.set(null);
+    this.deactivateTarget.set(null);
+    this.deleteTarget.set(u);
+  }
+
+  isCurrentUser(u: StaffUsuario): boolean {
+    return this.auth.currentUser()?.id === u.id;
   }
 
   async deactivate(u: StaffUsuario): Promise<void> {
@@ -386,6 +512,42 @@ export class UsuariosPage implements OnInit {
     } catch (error: unknown) {
       this.error.set(
         this.usuariosService.extractErrorMessage(error, 'No se pudo desactivar el usuario.')
+      );
+    } finally {
+      this.busyId.set(null);
+    }
+  }
+
+  async activate(u: StaffUsuario): Promise<void> {
+    this.busyId.set(u.id);
+    this.error.set(null);
+    this.success.set(null);
+    try {
+      await this.usuariosService.activate(u.id);
+      this.activateTarget.set(null);
+      this.success.set(`${u.email} fue reactivado.`);
+      await this.reload();
+    } catch (error: unknown) {
+      this.error.set(
+        this.usuariosService.extractErrorMessage(error, 'No se pudo activar el usuario.')
+      );
+    } finally {
+      this.busyId.set(null);
+    }
+  }
+
+  async remove(u: StaffUsuario): Promise<void> {
+    this.busyId.set(u.id);
+    this.error.set(null);
+    this.success.set(null);
+    try {
+      await this.usuariosService.remove(u.id);
+      this.deleteTarget.set(null);
+      this.usuarios.update((items) => items.filter((item) => item.id !== u.id));
+      this.success.set(`${u.email} fue eliminado.`);
+    } catch (error: unknown) {
+      this.error.set(
+        this.usuariosService.extractErrorMessage(error, 'No se pudo eliminar el usuario.')
       );
     } finally {
       this.busyId.set(null);

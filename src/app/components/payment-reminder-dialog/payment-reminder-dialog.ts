@@ -1,15 +1,32 @@
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, computed, effect, ElementRef, inject, input, output, signal, viewChild } from '@angular/core';
+import {
+  Component,
+  SecurityContext,
+  computed,
+  effect,
+  ElementRef,
+  inject,
+  input,
+  output,
+  signal,
+  viewChild,
+} from '@angular/core';
 import { DomSanitizer, type SafeHtml } from '@angular/platform-browser';
+import { FormsModule } from '@angular/forms';
+import { QuillEditorComponent, type QuillModules } from 'ngx-quill';
+import type QuillType from 'quill';
 import { DataService, type PaymentReminderEmailAttachmentPayload } from '../../core/services/data.service';
 import type { Cuenta } from '../../core/models';
 import {
-  buildCustomReminderBodyHtml,
-  buildCustomReminderBodyPlain,
-  formatLegalParagraphInnerHtml,
-  type LegalReminderBodyContext,
-} from '../../core/utils/payment-reminder-legal-body';
-import { collectCuentaEmails } from '../../core/utils/normalize-cuenta-deudores';
+  collectCuentaEmails,
+  formatNombresDeudores,
+  saludoEstimadoDeudores,
+} from '../../core/utils/normalize-cuenta-deudores';
+import {
+  isEmptyQuillHtml,
+  quillHtmlToPlainText,
+  styleQuillHtmlForEmail,
+} from '../../core/utils/quill-email-body';
 
 const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
 const MAX_ATTACHMENTS = 5;
@@ -39,6 +56,9 @@ const INSTAGRAM_URL =
 
 const MAX_EXTRA_RECIPIENTS = 5;
 
+/** Borrador del cuerpo Quill por cuenta (solo tras envío exitoso). */
+const CUERPO_TEMPLATE_STORAGE_PREFIX = 'legal.paymentReminder.cuerpoHtml.';
+
 type ReminderAttachment = {
   id: string;
   filename: string;
@@ -50,6 +70,52 @@ type ReminderAttachment = {
 @Component({
   selector: 'app-payment-reminder-dialog',
   standalone: true,
+  imports: [FormsModule, QuillEditorComponent],
+  styles: [
+    `
+      :host ::ng-deep .reminder-quill quill-editor {
+        display: block;
+        width: 100%;
+        max-width: 100%;
+      }
+      :host ::ng-deep .reminder-quill .ql-toolbar.ql-snow {
+        border-radius: 0.75rem 0.75rem 0 0;
+        border-color: #e5e5e5;
+        background: #fafafa;
+        width: 100%;
+        box-sizing: border-box;
+      }
+      :host ::ng-deep .reminder-quill .ql-container.ql-snow {
+        border-radius: 0 0 0.75rem 0.75rem;
+        border-color: #e5e5e5;
+        min-height: 10rem;
+        font-size: 0.875rem;
+        font-family: Arial, Helvetica, sans-serif;
+        width: 100%;
+        box-sizing: border-box;
+      }
+      :host ::ng-deep .reminder-quill .ql-editor {
+        min-height: 10rem;
+        width: 100%;
+        box-sizing: border-box;
+      }
+      :host ::ng-deep .reminder-quill .ql-uppercase::before {
+        content: 'AA';
+        font-weight: 700;
+        font-size: 11px;
+        letter-spacing: 0.02em;
+      }
+      :host ::ng-deep .reminder-body-preview p {
+        margin: 0 0 0.5rem;
+        text-align: justify;
+      }
+      :host ::ng-deep .reminder-body-preview ul,
+      :host ::ng-deep .reminder-body-preview ol {
+        margin: 0 0 0.5rem;
+        padding-left: 1.25rem;
+      }
+    `,
+  ],
   template: `
     <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div class="fixed inset-0 bg-black/50" (click)="openChange.emit(false)"></div>
@@ -104,21 +170,24 @@ type ReminderAttachment = {
           <!-- Componer correo: cabecera + cuerpo editable + pie -->
           <div>
             <h3 class="text-sm font-semibold text-foreground mb-2">Componer correo</h3>
-            <div class="mb-3">
+            <div class="mb-3 reminder-quill w-full">
               <label class="block text-sm font-medium text-foreground mb-1.5">Cuerpo del mensaje</label>
-              <textarea
-                [value]="cuerpoPersonalizado()"
-                (input)="cuerpoPersonalizado.set($any($event.target).value)"
-                rows="8"
-                placeholder="Escriba aquí el cuerpo del correo. Separe párrafos con una línea en blanco."
-                class="w-full rounded-xl border border-input bg-background px-4 py-3 text-sm text-foreground resize-y focus:outline-none focus:ring-2 focus:ring-primary/30"
-              ></textarea>
+              <quill-editor
+                class="block w-full"
+                format="html"
+                [modules]="quillModules"
+                [formats]="quillFormats"
+                theme="snow"
+                placeholder="Escriba aquí el cuerpo del correo. Use la barra para negrita, mayúsculas, listas, etc."
+                [(ngModel)]="cuerpoNgModel"
+                (ngModelChange)="onCuerpoHtmlChange($event)"
+              ></quill-editor>
               <p class="text-xs text-muted-foreground mt-1.5">
-                La vista previa y el correo enviado muestran este texto; si está vacío, el cuerpo queda en blanco.
+                Barra tipo Gmail: negrita, cursiva, subrayado, mayúsculas (AA), color, alineación y listas. La vista previa refleja el formato.
               </p>
             </div>
-            <div class="border border-border overflow-hidden bg-[#ececec] p-4">
-              <div class="mx-auto max-w-[600px] bg-white border border-[#dddddd] overflow-hidden shadow-sm">
+            <div class="border border-border overflow-hidden bg-[#ececec] p-4 w-full">
+              <div class="w-full bg-white border border-[#dddddd] overflow-hidden shadow-sm">
               <!-- Cabecera del email -->
               <div class="text-white px-6 py-5 flex flex-wrap items-center gap-4" style="background-color:#611374;">
                 <img src="/brand/legaltech-logo.png" alt="LegalTech" width="48" height="48" class="h-12 w-12 rounded-[10px] shrink-0" />
@@ -130,10 +199,10 @@ type ReminderAttachment = {
               </div>
 
               <div class="px-7 py-6 text-[14px] text-[#333] font-[Arial,Helvetica,sans-serif] leading-snug">
-                <p class="mb-2 text-justify">Estimado(a) <strong>{{ nombreDestinatario() }}</strong>,</p>
+                <p class="mb-2 text-justify">{{ saludoDestinatario() }} <strong>{{ nombreDestinatario() }}</strong>,</p>
 
-                @for (parrafo of parrafosPersonalizados(); track $index) {
-                  <p class="mb-2 text-[#333] text-justify leading-snug" [innerHTML]="parrafoPreviewHtml(parrafo)"></p>
+                @if (cuerpoPreviewHtml(); as preview) {
+                  <div class="reminder-body-preview mb-2 text-[#333] leading-snug" [innerHTML]="preview"></div>
                 }
 
                 <p class="mb-2 text-sm text-[#666] text-justify">
@@ -320,6 +389,8 @@ export class PaymentReminderDialog {
   destinatariosCampo = signal('');
   destinatarioExtraError = signal<string | null>(null);
   private destInput = viewChild<ElementRef<HTMLInputElement>>('destInput');
+  /** Modelo para Quill (ngModel); se sincroniza con el signal. */
+  cuerpoNgModel = '';
   cuerpoPersonalizado = signal('');
   adjuntos = signal<ReminderAttachment[]>([]);
   adjuntoError = signal<string | null>(null);
@@ -330,6 +401,44 @@ export class PaymentReminderDialog {
   readonly reminderContact = REMINDER_CONTACT;
   readonly instagramUrl = INSTAGRAM_URL;
 
+  readonly quillFormats = [
+    'bold',
+    'italic',
+    'underline',
+    'strike',
+    'color',
+    'background',
+    'size',
+    'align',
+    'list',
+    'indent',
+  ];
+
+  readonly quillModules: QuillModules = {
+    toolbar: {
+      container: [
+        ['bold', 'italic', 'underline'],
+        [{ size: ['small', false, 'large'] }],
+        [{ color: [] }],
+        [{ align: [] }],
+        [{ list: 'ordered' }, { list: 'bullet' }],
+        ['uppercase'],
+        ['clean'],
+      ],
+      handlers: {
+        uppercase(this: { quill: QuillType }) {
+          const quill = this.quill;
+          const range = quill.getSelection(true);
+          if (!range || range.length === 0) return;
+          const text = quill.getText(range.index, range.length);
+          quill.deleteText(range.index, range.length, 'user');
+          quill.insertText(range.index, text.toLocaleUpperCase('es-CO'), 'user');
+          quill.setSelection(range.index, text.length, 'silent');
+        },
+      },
+    },
+  };
+
   fecha = new Date().toLocaleDateString('es-CO', {
     day: 'numeric',
     month: 'long',
@@ -337,13 +446,19 @@ export class PaymentReminderDialog {
   });
   footerYear = new Date().getFullYear();
 
-  nombreDestinatario = computed(() => this.cuenta().cobro_nombre?.trim() ?? '');
+  nombreDestinatario = computed(() => formatNombresDeudores(this.cuenta()));
+  saludoDestinatario = computed(() => saludoEstimadoDeudores(this.cuenta()));
   nombreCopropiedad = computed(() => {
     const p = this.cuenta();
     const cliente = this.data.getClienteById(p.cliente_id);
     return cliente?.nombre?.trim() || p.direccion?.trim() || '—';
   });
-  parrafosPersonalizados = computed(() => buildCustomReminderBodyPlain(this.cuerpoPersonalizado()));
+  cuerpoPreviewHtml = computed((): SafeHtml | null => {
+    const html = this.cuerpoPersonalizado();
+    if (isEmptyQuillHtml(html)) return null;
+    const safe = this.sanitizer.sanitize(SecurityContext.HTML, html);
+    return safe ? this.sanitizer.bypassSecurityTrustHtml(safe) : null;
+  });
   /** Misma lógica que "Deuda a la fecha" en el detalle: saldo − pagos (se actualiza con el historial). */
   montoPendiente = computed(() =>
     this.data.getDeudaActualParaCuenta(this.cuenta())
@@ -381,12 +496,44 @@ export class PaymentReminderDialog {
       });
       this.asunto.set(`Recordatorio de pago - ${p.identificador}`);
       this.destinatarioExtraError.set(null);
-      this.cuerpoPersonalizado.set('');
+      const savedCuerpo = this.loadCuerpoTemplate(p.id);
+      this.cuerpoNgModel = savedCuerpo;
+      this.cuerpoPersonalizado.set(savedCuerpo);
       this.adjuntos.set([]);
       this.adjuntoError.set(null);
       this.sendError.set(null);
       this.sendSuccess.set(null);
     });
+  }
+
+  private cuerpoTemplateStorageKey(cuentaId: string): string {
+    return `${CUERPO_TEMPLATE_STORAGE_PREFIX}${cuentaId}`;
+  }
+
+  /** Último cuerpo Quill enviado con éxito para esta cuenta (mismo navegador). */
+  private loadCuerpoTemplate(cuentaId: string): string {
+    if (typeof globalThis.localStorage === 'undefined') return '';
+    try {
+      const raw = globalThis.localStorage.getItem(this.cuerpoTemplateStorageKey(cuentaId));
+      if (!raw || isEmptyQuillHtml(raw)) return '';
+      return raw;
+    } catch {
+      return '';
+    }
+  }
+
+  private saveCuerpoTemplate(cuentaId: string, html: string): void {
+    if (typeof globalThis.localStorage === 'undefined') return;
+    const key = this.cuerpoTemplateStorageKey(cuentaId);
+    try {
+      if (isEmptyQuillHtml(html)) {
+        globalThis.localStorage.removeItem(key);
+        return;
+      }
+      globalThis.localStorage.setItem(key, html);
+    } catch {
+      // Cuota llena o almacenamiento bloqueado: el envío ya ocurrió; no bloquear UX.
+    }
   }
 
   onDestinatariosInput(event: Event): void {
@@ -475,6 +622,7 @@ export class PaymentReminderDialog {
         attachments: this.adjuntosPayload(),
       });
       if (result.status === 'sent') {
+        this.saveCuerpoTemplate(this.cuenta().id, this.cuerpoPersonalizado());
         this.sendSuccess.set(`Correo enviado a ${result.cliente_email}.`);
         this.sent.emit();
         return;
@@ -497,39 +645,19 @@ export class PaymentReminderDialog {
     return 'No se pudo enviar el correo. Intenta de nuevo.';
   }
 
-  private legalBodyContext(): LegalReminderBodyContext {
-    const p = this.cuenta();
-    return {
-      tipoUnidad: this.data.tipoCuentaLabels[p.tipo_cuenta] ?? 'UNIDAD',
-      identificador: p.identificador,
-      copropiedad: this.nombreCopropiedad(),
-      montoPendiente: this.montoPendiente(),
-    };
-  }
-
-  private cuerpoParrafosPlain(): string[] {
-    const custom = this.cuerpoPersonalizado().trim();
-    if (!custom) return [];
-    return buildCustomReminderBodyPlain(custom);
+  onCuerpoHtmlChange(html: string): void {
+    this.cuerpoPersonalizado.set(html ?? '');
   }
 
   private cuerpoParrafosHtml(): string {
-    const custom = this.cuerpoPersonalizado().trim();
-    if (!custom) return '';
-    const escape = (v: string) => this.escapeHtmlLite(v);
-    return buildCustomReminderBodyHtml(custom, escape, this.legalBodyContext());
-  }
-
-  parrafoPreviewHtml(text: string): SafeHtml {
-    const inner = formatLegalParagraphInnerHtml(text, (v) => this.escapeHtmlLite(v), this.legalBodyContext());
-    return this.sanitizer.bypassSecurityTrustHtml(inner);
+    return styleQuillHtmlForEmail(this.cuerpoPersonalizado());
   }
 
   private cuerpoTexto(): string {
-    const parrafos = this.cuerpoParrafosPlain();
+    const cuerpo = quillHtmlToPlainText(this.cuerpoPersonalizado());
     const bloques = [
-      `Estimado(a) ${this.nombreDestinatario()},`,
-      ...(parrafos.length ? ['', ...parrafos, ''] : ['']),
+      `${this.saludoDestinatario()} ${this.nombreDestinatario()},`,
+      ...(cuerpo ? ['', cuerpo, ''] : ['']),
       'Si ya realizó el pago, por favor haga caso omiso de esta comunicación y envíenos el soporte respectivo.',
       TEXTO_INQUIETUDES,
       '',
@@ -657,7 +785,7 @@ export class PaymentReminderDialog {
           <tr><td>${header}</td></tr>
           <tr>
             <td style="padding:24px 28px 8px;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.6;color:#333333;">
-              <p style="margin:0 0 8px;font-size:15px;color:#333333;text-align:justify;">Estimado(a) <strong>${cliente}</strong>,</p>
+              <p style="margin:0 0 8px;font-size:15px;color:#333333;text-align:justify;">${this.escapeHtmlLite(this.saludoDestinatario())} <strong>${cliente}</strong>,</p>
               ${cuerpoHtml}
               <p style="margin:0 0 8px;font-size:14px;color:#666666;text-align:justify;">Si ya realizó el pago, por favor haga caso omiso de esta comunicación y envíenos el soporte respectivo.</p>
               <p style="margin:0 0 12px;font-size:14px;color:#666666;text-align:justify;">${inquietudesHtml}</p>
