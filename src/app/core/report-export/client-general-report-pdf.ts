@@ -2,6 +2,10 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import type { Cliente, Cuenta } from '../models';
 import type { DataService } from '../services/data.service';
+import {
+  buildUnidadGestionExportRows,
+  GESTION_EXPORT_HEADERS_CON_UNIDAD,
+} from './gestion-report';
 
 export type ClientReportResumenRow = {
   cuenta: Cuenta;
@@ -12,6 +16,7 @@ export type ClientReportResumenRow = {
   edad_mora_dias: number | null;
   fecha_inicio_cobro: string | null;
   fecha_fin_cobro: string | null;
+  fecha_alta: string | null;
 };
 
 export function buildClientReportResumenRows(
@@ -26,11 +31,12 @@ export function buildClientReportResumenRows(
       cuenta: p,
       identificador: p.identificador,
       documentoLabel: documento === '—' ? '—' : `${docLabel} ${documento}`,
-      correo: p.cobro_email?.trim() || '—',
+      correo: data.formatDeudorEmailCorto(p) || '—',
       deuda: data.getDeudaActualParaCuenta(p),
       edad_mora_dias: r.edad_mora_dias,
       fecha_inicio_cobro: r.fecha_inicio_cobro,
       fecha_fin_cobro: r.fecha_fin_cobro,
+      fecha_alta: r.fecha_alta,
     };
   });
 }
@@ -41,6 +47,7 @@ export function resumenCuentaPdfRow(data: DataService, row: ClientReportResumenR
       edad_mora_dias: row.edad_mora_dias,
       fecha_inicio_cobro: row.fecha_inicio_cobro,
       fecha_fin_cobro: row.fecha_fin_cobro,
+      fecha_alta: row.fecha_alta,
     })
     .replace(/\n/g, ' | ');
   return [
@@ -137,6 +144,28 @@ export function downloadClientGeneralReportPdf(options: {
     styles: { fontSize: 8 },
     headStyles: { fillColor: [107, 60, 200] },
   });
+
+  const yAfterTx = docLt.lastAutoTable?.finalY ?? yAfterResumen + 24;
+  const gestionRows = buildUnidadGestionExportRows(data, cuentas);
+  doc.setFontSize(11);
+  doc.text('Trazabilidad de cobro por unidad', 14, yAfterTx + 10);
+  if (gestionRows.length === 0) {
+    doc.setFontSize(10);
+    doc.text(
+      'No hay trazabilidad de cobro registrada en las unidades de este cliente.',
+      14,
+      yAfterTx + 16,
+    );
+  } else {
+    autoTable(doc, {
+      startY: yAfterTx + 14,
+      head: [[...GESTION_EXPORT_HEADERS_CON_UNIDAD]],
+      body: gestionRows,
+      styles: { fontSize: 8, overflow: 'linebreak' },
+      columnStyles: { 4: { cellWidth: 70 } },
+      headStyles: { fillColor: [107, 60, 200] },
+    });
+  }
 
   doc.save(`informe_general_${cliente.nombre.replace(/\s/g, '_')}.pdf`);
 }

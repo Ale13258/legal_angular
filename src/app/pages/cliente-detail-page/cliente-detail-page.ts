@@ -7,6 +7,8 @@ import {
   FormControl,
   FormGroup,
   Validators,
+  type AbstractControl,
+  type ValidationErrors,
 } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import {
@@ -29,6 +31,13 @@ import { parseMontoColombiano } from '../../core/utils/parse-monto-colombiano';
 
 const MAX_DEUDORES = 10;
 const MAX_EMAILS_POR_DEUDOR = 5;
+
+function deudorContactoValidator(group: AbstractControl): ValidationErrors | null {
+  const telefono = String(group.get('telefono')?.value ?? '').trim();
+  const emails = group.get('emails') as FormArray | null;
+  const hasEmail = Boolean(emails?.controls.some((c) => String(c.value ?? '').trim()));
+  return hasEmail || telefono ? null : { contactoRequerido: true };
+}
 
 @Component({
   selector: 'app-cliente-detail-page',
@@ -167,7 +176,10 @@ const MAX_EMAILS_POR_DEUDOR = 5;
                 </colgroup>
                 <thead>
                   <tr class="border-b border-border">
+                    <th class="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Dirección</th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Tipo</th>
                     <th class="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Propiedad</th>
+                    <th class="deudor-col text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Deudor</th>
                     <th
                       class="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase whitespace-nowrap"
                       title="Días en mora y etapa. Pasa el cursor para ver alta en app, inicio y fin de cobro."
@@ -206,6 +218,9 @@ const MAX_EMAILS_POR_DEUDOR = 5;
                         </div>
                         <div class="text-xs text-muted-foreground mt-1 leading-snug line-clamp-2">
                           {{ data.formatEtapaCobranzaCorta(resumenCobro(p).edad_mora_dias) }}
+                        </div>
+                        <div class="text-xs text-muted-foreground mt-1">
+                          Inicio: {{ data.formatFechaCorta(resumenCobro(p).fecha_inicio_cobro) }}
                         </div>
                       </td>
                       <td class="px-3 py-3 text-right tabular-nums whitespace-nowrap align-middle">
@@ -258,24 +273,24 @@ const MAX_EMAILS_POR_DEUDOR = 5;
 
           <div class="bg-card rounded-2xl shadow-card p-6 border border-border/50">
             <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
-              <h2 class="font-display font-bold text-lg">Cuentas del Cliente</h2>
+              <h2 class="font-display font-bold text-lg">No. RADICADO</h2>
               <button
                 type="button"
                 (click)="openNuevoProcesoLegal()"
                 class="inline-flex items-center gap-1.5 rounded-xl bg-primary text-primary-foreground px-4 py-2 text-sm font-medium hover:opacity-90 shrink-0"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
-                Añadir cuenta
+                Añadir radicado
               </button>
             </div>
             <p class="text-sm text-muted-foreground mb-4">
-              El tipo, estado y etapa alimentan el dashboard y los informes. Crea al menos una cuenta por cliente si aplica a tu operación.
+              El tipo, estado y etapa alimentan el dashboard y los informes. Crea al menos un radicado por cliente si aplica a tu operación.
             </p>
             <div class="overflow-x-auto">
               <table class="w-full">
                 <thead>
                   <tr class="border-b border-border">
-                    <th class="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Cuenta</th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">No. RADICADO</th>
                     <th class="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Tipo</th>
                     <th class="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Estado</th>
                     <th class="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Etapa</th>
@@ -308,7 +323,7 @@ const MAX_EMAILS_POR_DEUDOR = 5;
                             type="button"
                             (click)="editarProcesoLegal(cu)"
                             class="p-2 rounded-lg text-muted-foreground hover:text-primary hover:bg-secondary"
-                            title="Editar cuenta"
+                            title="Editar radicado"
                           >
                             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
                           </button>
@@ -316,7 +331,7 @@ const MAX_EMAILS_POR_DEUDOR = 5;
                             type="button"
                             (click)="eliminarProcesoLegal(cu)"
                             class="p-2 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                            title="Eliminar cuenta"
+                            title="Eliminar radicado"
                           >
                             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>
                           </button>
@@ -326,7 +341,7 @@ const MAX_EMAILS_POR_DEUDOR = 5;
                   } @empty {
                     <tr>
                       <td colspan="5" class="px-4 py-10 text-center text-sm text-muted-foreground">
-                        No hay cuentas. Pulsa <span class="font-medium text-foreground">Añadir cuenta</span> para registrar tipo, estado y etapa.
+                        No hay radicados. Pulsa <span class="font-medium text-foreground">Añadir radicado</span> para registrar tipo, estado y etapa.
                       </td>
                     </tr>
                   }
@@ -436,11 +451,12 @@ const MAX_EMAILS_POR_DEUDOR = 5;
                 <div>
                   <h3 class="text-sm font-semibold text-foreground">Usuario(s) a cobrar</h3>
                   <p class="mt-1 text-xs text-muted-foreground">
-                    Puedes agregar más de un deudor y varios correos por deudor. A estos correos se enviarán las notificaciones de cobro.
+                    Puedes agregar más de un deudor. El correo no es obligatorio: si no lo tienes, indica un teléfono.
+                    El recordatorio por email solo se envía cuando hay correo.
                   </p>
                 </div>
 
-                @for (deudorCtrl of deudoresControls(); track deudorCtrl; let di = $index) {
+                @for (deudorCtrl of deudoresControls(); track $index; let di = $index) {
                   <div [formGroupName]="di" class="rounded-xl border border-border/70 bg-muted/20 p-4 space-y-4">
                     <div class="flex items-center justify-between gap-2">
                       <p class="text-sm font-medium text-foreground">Deudor {{ di + 1 }}</p>
@@ -487,9 +503,19 @@ const MAX_EMAILS_POR_DEUDOR = 5;
                       </div>
                     </div>
 
+                    <div>
+                      <label class="block text-sm font-medium text-foreground mb-1.5">Teléfono</label>
+                      <input
+                        type="tel"
+                        formControlName="telefono"
+                        placeholder="300 123 4567"
+                        class="w-full rounded-xl border border-input bg-background px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                      />
+                    </div>
+
                     <div formArrayName="emails" class="space-y-3">
-                      <label class="block text-sm font-medium text-foreground">Correos de notificación</label>
-                      @for (emailCtrl of emailsControls(di); track emailCtrl; let ei = $index) {
+                      <label class="block text-sm font-medium text-foreground">Correos de notificación (opcional)</label>
+                      @for (emailCtrl of emailsControls(di); track $index; let ei = $index) {
                         <div class="flex gap-2">
                           <input
                             type="email"
@@ -519,6 +545,9 @@ const MAX_EMAILS_POR_DEUDOR = 5;
                         Agregar correo
                       </button>
                     </div>
+                    @if (deudorCtrl.hasError('contactoRequerido') && deudorCtrl.touched) {
+                      <p class="text-xs text-destructive">Indica al menos un correo o un teléfono.</p>
+                    }
                   </div>
                 }
 
@@ -725,7 +754,7 @@ const MAX_EMAILS_POR_DEUDOR = 5;
               <div>
                 <h3 class="font-display text-lg font-bold text-foreground">Confirmar eliminacion</h3>
                 <p class="mt-1 text-sm text-muted-foreground">
-                  Vas a eliminar la cuenta <span class="font-medium text-foreground">"{{ procesoLegalToDelete()!.numero_cuenta }}"</span>.
+                  Vas a eliminar el radicado <span class="font-medium text-foreground">"{{ procesoLegalToDelete()!.numero_cuenta }}"</span>.
                 </p>
                 <p class="mt-1 text-xs text-destructive/90">Esta accion no se puede deshacer.</p>
               </div>
@@ -848,23 +877,29 @@ export class ClienteDetailPage {
   }
 
   private createEmailControl(value = ''): FormControl<string | null> {
-    return this.fb.control(value, [Validators.required, Validators.email]);
+    return this.fb.control(value, [Validators.email]);
   }
 
   private createDeudorGroup(deudor?: Partial<DeudorCobro>): FormGroup {
     const emails = (deudor?.emails?.length ? deudor.emails : ['']).map((e) =>
       this.createEmailControl(e)
     );
-    return this.fb.group({
-      nombre: [deudor?.nombre ?? '', Validators.required],
-      tipo_persona: [(deudor?.tipo_persona ?? 'natural') as TipoPersona, Validators.required],
-      documento: [deudor?.documento ?? '', Validators.required],
-      emails: this.fb.array(emails),
-    });
+    return this.fb.group(
+      {
+        nombre: [deudor?.nombre ?? '', Validators.required],
+        tipo_persona: [(deudor?.tipo_persona ?? 'natural') as TipoPersona, Validators.required],
+        documento: [deudor?.documento ?? '', Validators.required],
+        telefono: [deudor?.telefono ?? ''],
+        emails: this.fb.array(emails),
+      },
+      { validators: deudorContactoValidator },
+    );
   }
 
   private setDeudoresForm(deudores: DeudorCobro[]): void {
-    const list = deudores.length ? deudores : [{ nombre: '', tipo_persona: 'natural' as TipoPersona, documento: '', emails: [''] }];
+    const list = deudores.length
+      ? deudores
+      : [{ nombre: '', tipo_persona: 'natural' as TipoPersona, documento: '', emails: [''], telefono: '' }];
     this.deudoresArray.clear();
     for (const d of list) {
       this.deudoresArray.push(this.createDeudorGroup(d));
@@ -878,11 +913,13 @@ export class ClienteDetailPage {
       const emails = emailsCtrl.controls
         .map((c) => String(c.value ?? '').trim())
         .filter(Boolean);
+      const telefono = String(group.get('telefono')?.value ?? '').trim() || null;
       return {
         nombre: String(group.get('nombre')?.value ?? '').trim(),
         tipo_persona: (group.get('tipo_persona')?.value ?? 'natural') as TipoPersona,
         documento: String(group.get('documento')?.value ?? '').trim(),
         emails,
+        telefono,
       };
     });
   }
@@ -934,7 +971,10 @@ export class ClienteDetailPage {
         this.data.loadProcesosLegalesByCliente(id),
       ]);
       const propiedadesDetalle = await this.data.loadCuentaDetallesForCuentas(cuentas);
-      await this.data.loadHistorialesForCuentas(propiedadesDetalle);
+      await Promise.all([
+        this.data.loadHistorialesForCuentas(propiedadesDetalle),
+        this.data.loadGestionesForCuentas(propiedadesDetalle),
+      ]);
     } catch {
       this.error.set('No se pudo cargar el detalle del cliente.');
     } finally {
@@ -1019,7 +1059,8 @@ export class ClienteDetailPage {
       direccion: cuenta.direccion,
       notas: cuenta.notas ?? '',
       saldo_inicial: formatMontoColombiano(this.data.getTotalCobradoParaCuenta(cuenta)),
-      fecha_inicio_cobro: cuenta.fecha_inicio_cobro?.trim().slice(0, 10) ?? '',
+      fecha_inicio_cobro:
+        this.data.getResumenMoraCobroParaCuenta(cuenta).fecha_inicio_cobro?.slice(0, 10) ?? '',
     });
     this.setDeudoresForm(resolveDeudores(cuenta));
     this.cuentaCreateOpen.set(true);
@@ -1119,8 +1160,8 @@ export class ClienteDetailPage {
           ? fechaRaw.trim().slice(0, 10)
           : null;
       const deudores = this.readDeudoresFromForm();
-      if (!deudores.length || deudores.some((d) => !d.nombre || !d.documento || !d.emails.length)) {
-        this.cuentaCreateError.set('Completa los datos de cada deudor (nombre, documento y al menos un correo).');
+      if (!deudores.length || deudores.some((d) => !d.nombre || !d.documento || (!d.emails.length && !d.telefono))) {
+        this.cuentaCreateError.set('Completa los datos de cada deudor (nombre, documento y al menos un correo o un teléfono).');
         return;
       }
       const principal = deudores[0];

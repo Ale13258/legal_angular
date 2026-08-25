@@ -12,6 +12,7 @@ import {
   buildTable,
   saveDocx,
 } from '../../core/report-export/report-docx';
+import { pickClienteMasAntiguo, type MoraPorClienteRow } from '../../core/mora-por-cliente';
 
 @Component({
   selector: 'app-graficos-report-dialog',
@@ -98,22 +99,32 @@ import {
           </div>
 
           <div>
-            <h3 class="text-sm font-semibold text-foreground mb-2">Cobrado vs Pagado por Periodo</h3>
+            <h3 class="text-sm font-semibold text-foreground mb-2">Mora y antigüedad por cliente</h3>
+            @if (clienteMasAntiguo(); as viejo) {
+              <p class="text-sm text-muted-foreground mb-2">
+                Cliente más antiguo: <strong class="text-foreground">{{ viejo.nombre }}</strong>
+                ({{ data.formatDiasMora(viejo.antiguedad_dias) }} en la cartera)
+              </p>
+            }
             <div class="overflow-x-auto rounded-xl border border-border">
               <table class="w-full text-sm">
                 <thead>
                   <tr class="border-b border-border bg-muted/30">
-                    <th class="text-left px-3 py-2 font-semibold text-muted-foreground">Periodo</th>
-                    <th class="text-right px-3 py-2 font-semibold text-muted-foreground">Cobrado</th>
-                    <th class="text-right px-3 py-2 font-semibold text-muted-foreground">Pagado</th>
+                    <th class="text-left px-3 py-2 font-semibold text-muted-foreground">Cliente</th>
+                    <th class="text-right px-3 py-2 font-semibold text-muted-foreground">% de mora</th>
+                    <th class="text-right px-3 py-2 font-semibold text-muted-foreground">Deuda</th>
+                    <th class="text-right px-3 py-2 font-semibold text-muted-foreground">Edad en mora</th>
+                    <th class="text-right px-3 py-2 font-semibold text-muted-foreground">Antigüedad</th>
                   </tr>
                 </thead>
                 <tbody>
-                  @for (row of periodoTable(); track row.periodo) {
+                  @for (row of moraTable(); track row.cliente_id) {
                     <tr class="border-b border-border/50">
-                      <td class="px-3 py-2 font-mono">{{ row.periodo }}</td>
-                      <td class="px-3 py-2 text-right tabular-nums">{{ data.formatCurrency(row.cobrado) }}</td>
-                      <td class="px-3 py-2 text-right tabular-nums">{{ data.formatCurrency(row.pagado) }}</td>
+                      <td class="px-3 py-2">{{ row.nombre }}</td>
+                      <td class="px-3 py-2 text-right tabular-nums">{{ data.formatPorcentaje(row.porcentaje_mora) }}</td>
+                      <td class="px-3 py-2 text-right tabular-nums">{{ data.formatCurrency(row.deuda) }}</td>
+                      <td class="px-3 py-2 text-right tabular-nums">{{ data.formatDiasMora(row.edad_mora_dias) }}</td>
+                      <td class="px-3 py-2 text-right tabular-nums">{{ data.formatDiasMora(row.antiguedad_dias) }}</td>
                     </tr>
                   }
                 </tbody>
@@ -201,12 +212,12 @@ export class GraficosReportDialog {
     }));
   }
 
-  periodoTable(): { periodo: string; cobrado: number; pagado: number }[] {
-    return this.data.getEvolucionCartera().map((s) => ({
-      periodo: s.periodo,
-      cobrado: s.total,
-      pagado: 0,
-    }));
+  moraTable(): MoraPorClienteRow[] {
+    return this.data.getMoraPorCliente();
+  }
+
+  clienteMasAntiguo(): MoraPorClienteRow | null {
+    return pickClienteMasAntiguo(this.moraTable());
   }
 
   constructor(protected data: DataService) {}
@@ -254,16 +265,28 @@ export class GraficosReportDialog {
     startY = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 10;
 
     doc.setFontSize(11);
-    doc.text('Cobrado vs Pagado por Periodo', 14, startY);
+    doc.text('Mora y antigüedad por cliente', 14, startY);
     startY += 6;
-    const periodoRows = this.periodoTable();
+    const moraRows = this.moraTable();
+    const viejo = this.clienteMasAntiguo();
+    if (viejo) {
+      doc.setFontSize(10);
+      doc.text(
+        `Cliente más antiguo: ${viejo.nombre} (${this.data.formatDiasMora(viejo.antiguedad_dias)})`,
+        14,
+        startY,
+      );
+      startY += 6;
+    }
     autoTable(doc, {
       startY,
-      head: [['Periodo', 'Cobrado', 'Pagado']],
-      body: periodoRows.map((r) => [
-        r.periodo,
-        this.data.formatCurrency(r.cobrado),
-        this.data.formatCurrency(r.pagado),
+      head: [['Cliente', '% de mora', 'Deuda', 'Edad en mora', 'Antigüedad']],
+      body: moraRows.map((r) => [
+        r.nombre,
+        this.data.formatPorcentaje(r.porcentaje_mora),
+        this.data.formatCurrency(r.deuda),
+        this.data.formatDiasMora(r.edad_mora_dias),
+        this.data.formatDiasMora(r.antiguedad_dias),
       ]),
       styles: { fontSize: 9 },
       headStyles: { fillColor: [107, 60, 200] },
@@ -275,7 +298,8 @@ export class GraficosReportDialog {
   downloadExcel(): void {
     const estadoRows = this.estadoTable();
     const tipoRows = this.tipoTable();
-    const periodoRows = this.periodoTable();
+    const moraRows = this.moraTable();
+    const viejo = this.clienteMasAntiguo();
     const wsData: (string | number)[][] = [
       ['Informe de analítica de cartera'],
       [`Fecha: ${this.fecha}`],
@@ -293,13 +317,24 @@ export class GraficosReportDialog {
       ['Tipo', 'Cuentas'],
       ...tipoRows.map((r) => [r.label, r.cantidad]),
       [],
-      ['Cobrado vs Pagado por Periodo'],
-      ['Periodo', 'Cobrado', 'Pagado'],
-      ...periodoRows.map((r) => [r.periodo, r.cobrado, r.pagado]),
+      ['Mora y antigüedad por cliente'],
+      ...(viejo
+        ? [['Cliente más antiguo', viejo.nombre, this.data.formatDiasMora(viejo.antiguedad_dias)]]
+        : []),
+      ['Cliente', '% de mora', 'Deuda', 'Edad en mora', 'Antigüedad'],
+      ...moraRows.map((r) => [
+        r.nombre,
+        r.porcentaje_mora,
+        r.deuda,
+        r.edad_mora_dias ?? '—',
+        r.antiguedad_dias,
+      ]),
     ];
     const ws = XLSX.utils.aoa_to_sheet(wsData);
     (ws as unknown as { '!cols': { wch: number }[] })['!cols'] = [
-      { wch: 18 },
+      { wch: 28 },
+      { wch: 16 },
+      { wch: 16 },
       { wch: 16 },
       { wch: 16 },
     ];
@@ -311,7 +346,8 @@ export class GraficosReportDialog {
   async downloadWord(): Promise<void> {
     const estadoRows = this.estadoTable();
     const tipoRows = this.tipoTable();
-    const periodoRows = this.periodoTable();
+    const moraRows = this.moraTable();
+    const viejo = this.clienteMasAntiguo();
     const titulo = 'Informe de analítica de cartera';
 
     const children = [
@@ -337,13 +373,22 @@ export class GraficosReportDialog {
         tipoRows.map((r) => [r.label, String(r.cantidad)])
       ),
       buildSpacer(),
-      buildSubheading('Cobrado vs Pagado por Periodo'),
+      buildSubheading('Mora y antigüedad por cliente'),
+      ...(viejo
+        ? [
+            buildParagraph(
+              `Cliente más antiguo: ${viejo.nombre} (${this.data.formatDiasMora(viejo.antiguedad_dias)})`,
+            ),
+          ]
+        : []),
       buildTable(
-        ['Periodo', 'Cobrado', 'Pagado'],
-        periodoRows.map((r) => [
-          r.periodo,
-          this.data.formatCurrency(r.cobrado),
-          this.data.formatCurrency(r.pagado),
+        ['Cliente', '% de mora', 'Deuda', 'Edad en mora', 'Antigüedad'],
+        moraRows.map((r) => [
+          r.nombre,
+          this.data.formatPorcentaje(r.porcentaje_mora),
+          this.data.formatCurrency(r.deuda),
+          this.data.formatDiasMora(r.edad_mora_dias),
+          this.data.formatDiasMora(r.antiguedad_dias),
         ])
       ),
     ];

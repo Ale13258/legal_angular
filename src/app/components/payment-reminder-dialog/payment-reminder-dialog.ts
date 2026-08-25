@@ -147,13 +147,16 @@ type ReminderAttachment = {
               <input
                 #destInput
                 type="text"
+                [value]="destinatariosCampo()"
                 (input)="onDestinatariosInput($event)"
                 class="w-full rounded-xl border border-input bg-background px-4 py-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
               />
               @if (destinatarioExtraError()) {
                 <p class="text-xs text-destructive mt-1.5">{{ destinatarioExtraError() }}</p>
               }
-              <p class="text-xs text-muted-foreground mt-1">El primer correo es el de cobro (no editable). Agregue otros después de la coma.</p>
+              <p class="text-xs text-muted-foreground mt-1">
+                Se cargan todos los correos de los deudores. El primero no es editable; puede agregar más después de la coma.
+              </p>
             </div>
             <div class="sm:col-span-2">
               <label class="block text-sm font-medium text-foreground mb-1.5">Asunto</label>
@@ -320,7 +323,8 @@ type ReminderAttachment = {
           <!-- Resumen -->
           <div class="rounded-xl bg-muted/50 p-4">
             <h3 class="text-sm font-semibold text-foreground mb-3">Resumen</h3>
-            <p class="text-sm text-foreground">Contacto de cobro: {{ nombreDestinatario() }} - {{ destinatario() }}</p>
+            <p class="text-sm text-foreground">Contacto de cobro: {{ nombreDestinatario() }}</p>
+            <p class="text-sm text-foreground break-all">Correos: {{ destinatariosResumen() }}</p>
             <p class="text-sm text-foreground">Propiedad: {{ cuenta().identificador }}</p>
             <p class="text-sm font-bold text-destructive mt-2">Monto pendiente: {{ data.formatCurrency(montoPendiente()) }}</p>
           </div>
@@ -469,6 +473,12 @@ export class PaymentReminderDialog {
     return Boolean(email) && Boolean(subject) && this.montoPendiente() > 0;
   });
 
+  destinatariosResumen = computed(() => {
+    const { primary, extras } = this.reminderRecipients();
+    const all = primary ? [primary, ...extras] : extras;
+    return all.length ? all.join(', ') : '—';
+  });
+
   /** Evita reiniciar el borrador mientras el usuario escribe si la cuenta se refresca en segundo plano. */
   private lastSyncedCuentaKey: string | null = null;
 
@@ -479,11 +489,12 @@ export class PaymentReminderDialog {
         return;
       }
       const p = this.cuenta();
-      const key = p.id;
+      const emails = collectCuentaEmails(p);
+      const emailsKey = emails.join('|').toLowerCase();
+      const key = `${p.id}:${emailsKey}`;
       if (this.lastSyncedCuentaKey === key) return;
       this.lastSyncedCuentaKey = key;
 
-      const emails = collectCuentaEmails(p);
       const primary = emails[0] ?? p.cobro_email?.trim() ?? '';
       const extras = emails.slice(1, 1 + MAX_EXTRA_RECIPIENTS);
       this.destinatario.set(primary);
@@ -564,6 +575,30 @@ export class PaymentReminderDialog {
     return primary ? `${primary}, ` : '';
   }
 
+  private uniqueEmails(emails: string[]): string[] {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const raw of emails) {
+      const email = raw.trim();
+      if (!email) continue;
+      const key = email.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(email);
+    }
+    return out;
+  }
+
+  /** Principal = cobro; extras = resto de deudores + lo escrito en el campo. */
+  private reminderRecipients(): { primary: string; extras: string[] } {
+    const fromCuenta = collectCuentaEmails(this.cuenta());
+    const primary = this.destinatario().trim() || fromCuenta[0] || this.cuenta().cobro_email?.trim() || '';
+    const extras = this.uniqueEmails([...fromCuenta, ...this.parseDestinatariosExtra()])
+      .filter((email) => email.toLowerCase() !== primary.toLowerCase())
+      .slice(0, MAX_EXTRA_RECIPIENTS);
+    return { primary, extras };
+  }
+
   private parseDestinatariosExtra(): string[] {
     const prefix = this.destinatarioPrefijo();
     const raw = this.destinatariosCampo().slice(prefix.length).trim();
@@ -613,7 +648,11 @@ export class PaymentReminderDialog {
     }
     this.sending.set(true);
     try {
-      const extras = this.parseDestinatariosExtra();
+      const { primary, extras } = this.reminderRecipients();
+      if (!primary) {
+        this.sendError.set('No se puede enviar: falta correo de cobro de la propiedad o saldo pendiente.');
+        return;
+      }
       const result = await this.data.sendPaymentReminderEmail(this.cuenta().id, {
         subject: this.asunto().trim(),
         extra_recipients: extras.length ? extras : undefined,
@@ -623,7 +662,12 @@ export class PaymentReminderDialog {
       });
       if (result.status === 'sent') {
         this.saveCuerpoTemplate(this.cuenta().id, this.cuerpoPersonalizado());
-        this.sendSuccess.set(`Correo enviado a ${result.cliente_email}.`);
+        const extrasEcho = result.extra_recipients?.length ? result.extra_recipients : extras;
+        this.sendSuccess.set(
+          extrasEcho.length
+            ? `Correo enviado a ${result.cliente_email} y ${extrasEcho.join(', ')}.`
+            : `Correo enviado a ${result.cliente_email}.`,
+        );
         this.sent.emit();
         return;
       }

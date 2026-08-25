@@ -12,6 +12,7 @@ import { AgregarRegistroDialog } from '../../components/agregar-registro-dialog/
 import { fadeInFromLeft, fadeInUpStagger } from '../../core/animations/animations';
 import type { ChartConfiguration } from 'chart.js';
 import type { EstadoCuentaFile, Gestion, HistorialPago } from '../../core/models';
+import { resolveDeudores } from '../../core/utils/normalize-cuenta-deudores';
 
 @Component({
   selector: 'app-cuenta-detail-page',
@@ -91,19 +92,28 @@ import type { EstadoCuentaFile, Gestion, HistorialPago } from '../../core/models
             <div class="rounded-xl border border-border/50 bg-card p-4 sm:p-5 mb-4">
               <h3 class="text-sm font-semibold text-foreground mb-3">Cobro de esta unidad</h3>
               <dl class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
-                <div>
-                  <dt class="text-muted-foreground text-xs uppercase tracking-wide mb-1">Usuario a cobrar</dt>
-                  <dd class="font-medium text-foreground leading-snug">
-                    {{ cuenta()!.cobro_nombre }}
-                  </dd>
-                  <dd class="text-sm text-muted-foreground mt-0.5">
-                    {{ cuenta()!.cobro_tipo_persona === 'natural' ? 'CC' : 'NIT' }}:
-                    {{ cuenta()!.cobro_documento }}
-                  </dd>
-                  <dd class="text-sm text-muted-foreground mt-0.5">
-                    {{ cuenta()!.cobro_email }}
-                  </dd>
-                </div>
+                @for (d of deudoresUnidad(); track $index; let i = $index) {
+                  <div>
+                    <dt class="text-muted-foreground text-xs uppercase tracking-wide mb-1">
+                      {{ deudoresUnidad().length > 1 ? 'Usuario a cobrar ' + (i + 1) : 'Usuario a cobrar' }}
+                    </dt>
+                    <dd class="font-medium text-foreground leading-snug">{{ d.nombre || '—' }}</dd>
+                    <dd class="text-sm text-muted-foreground mt-0.5">
+                      {{ d.tipo_persona === 'natural' ? 'CC' : 'NIT' }}:
+                      {{ d.documento || '—' }}
+                    </dd>
+                    @if (d.emails.length === 0) {
+                      <dd class="text-sm text-muted-foreground mt-0.5">Correo: —</dd>
+                    } @else {
+                      @for (email of d.emails; track email) {
+                        <dd class="text-sm text-muted-foreground mt-0.5">{{ email }}</dd>
+                      }
+                    }
+                    <dd class="text-sm text-muted-foreground mt-0.5">
+                      Teléfono: {{ d.telefono?.trim() || '—' }}
+                    </dd>
+                  </div>
+                }
                 <div class="sm:col-span-2">
                   <dt class="text-muted-foreground text-xs uppercase tracking-wide mb-1">Etapa de cobranza</dt>
                   <dd class="font-medium text-foreground leading-snug">
@@ -117,8 +127,8 @@ import type { EstadoCuentaFile, Gestion, HistorialPago } from '../../core/models
                   </dd>
                 </div>
                 <div>
-                  <dt class="text-muted-foreground text-xs uppercase tracking-wide mb-1">Inicio del cobro (sistema)</dt>
-                  <dd class="font-medium" title="Solo si el backend envía fecha_inicio_cobro">
+                  <dt class="text-muted-foreground text-xs uppercase tracking-wide mb-1">Inicio del cobro</dt>
+                  <dd class="font-medium" title="Fecha de inicio de cobro o, si no está cargada, el alta de la cuenta">
                     {{ data.formatFechaCorta(resumenMora()?.fecha_inicio_cobro) }}
                   </dd>
                 </div>
@@ -471,6 +481,10 @@ export class CuentaDetailPage {
 
   private id = computed(() => this.route.snapshot.paramMap.get('id')!);
   cuenta = computed(() => this.data.getCuentaById(this.id()));
+  deudoresUnidad = computed(() => {
+    const p = this.cuenta();
+    return p ? resolveDeudores(p) : [];
+  });
   resumenMora = computed(() => {
     const p = this.cuenta();
     return p ? this.data.getResumenMoraCobroParaCuenta(p) : null;

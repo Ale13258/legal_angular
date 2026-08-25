@@ -1,10 +1,17 @@
 import { HttpParams } from '@angular/common/http';
 import { Injectable, inject, signal } from '@angular/core';
 import { etiquetaCortaParaDiasMora, etiquetaParaDiasMora } from '../mora-etapas';
+import { buildMoraPorCliente, type MoraPorClienteRow } from '../mora-por-cliente';
 import { ETAPA_PROCESO_LABELS, etiquetaEtapaProceso } from '../proceso-etapas';
+import { labelEstadoProcesoLegal, variantEstadoProcesoLegal } from '../proceso-estado';
 import { HttpService } from '../http/http.service';
 import { formatMontoColombianoCurrency } from '../utils/format-monto-colombiano';
-import { normalizeCuentaDeudores, resolveDeudores } from '../utils/normalize-cuenta-deudores';
+import {
+  mergeDeudoresAfterWrite,
+  mergeDeudoresPreferringComplete,
+  normalizeCuentaDeudores,
+  resolveDeudores,
+} from '../utils/normalize-cuenta-deudores';
 import type {
   Cliente,
   ConceptoPago,
@@ -141,10 +148,18 @@ export class DataService {
     acuerdo_de_pago: 'ACUERDO DE PAGO',
   };
   readonly estadoProcesoLegalLabels: Record<string, string> = {
-    activa: 'ACTIVA',
+    activa: 'EN PROCESO',
     cerrada: 'FINALIZADO',
     en_proceso: 'EN PROCESO',
   };
+
+  formatEstadoProcesoLegal(estado: string | null | undefined): string {
+    return labelEstadoProcesoLegal(estado);
+  }
+
+  variantEstadoProcesoLegal(estado: string | null | undefined): string {
+    return variantEstadoProcesoLegal(estado);
+  }
   readonly etapaProcesoLabels: Record<string, string> = {
     ...ETAPA_PROCESO_LABELS,
   };
@@ -175,6 +190,15 @@ export class DataService {
     const numeric = Number(value);
     const safeValue = Number.isFinite(numeric) ? numeric : 0;
     return formatMontoColombianoCurrency(safeValue);
+  }
+
+  formatPorcentaje(value: number): string {
+    const numeric = Number(value);
+    const safeValue = Number.isFinite(numeric) ? numeric : 0;
+    return `${safeValue.toLocaleString('es-CO', {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 1,
+    })} %`;
   }
 
   /** Deuda en UI: nunca negativa. */
@@ -253,10 +277,11 @@ export class DataService {
   /** Fecha ISO `YYYY-MM-DD` o vacío → texto corto es-CO o em dash. */
   formatFechaCorta(isoDate: string | null | undefined): string {
     if (isoDate == null || String(isoDate).trim() === '') return '—';
-    const s = String(isoDate).slice(0, 10);
-    const t = Date.parse(s);
-    if (!Number.isFinite(t)) return '—';
-    return new Date(t).toLocaleDateString('es-CO', {
+    const s = String(isoDate).trim().slice(0, 10);
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+    if (!m) return '—';
+    const date = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+    return date.toLocaleDateString('es-CO', {
       day: 'numeric',
       month: 'short',
       year: 'numeric',
@@ -325,12 +350,14 @@ export class DataService {
     edad_mora_dias: number | null;
     fecha_inicio_cobro: string | null;
     fecha_fin_cobro: string | null;
+    fecha_alta?: string | null;
     identificador?: string;
   }): string {
     return [
       `Días en mora: ${this.formatDiasMora(r.edad_mora_dias)}`,
       this.formatEtapaCobranza(r.edad_mora_dias),
-      `Inicio cobro (sistema): ${this.formatFechaCorta(r.fecha_inicio_cobro)}`,
+      `Alta en app: ${this.formatFechaCorta(r.fecha_alta)}`,
+      `Inicio cobro: ${this.formatFechaCorta(r.fecha_inicio_cobro)}`,
       `Fin cobro: ${this.formatFechaCorta(r.fecha_fin_cobro)}`,
     ].join('\n');
   }
@@ -346,18 +373,17 @@ export class DataService {
     return `${first} +${deudores.length - 1}`;
   }
 
-  /** Resumen corto de correos para la celda (primer correo + contador). */
+  /** Resumen corto de contacto para la celda (correo, o teléfono si no hay correo). */
   formatDeudorEmailCorto(
     p: Pick<Cuenta, 'cobro_nombre' | 'cobro_tipo_persona' | 'cobro_documento' | 'cobro_email' | 'deudores'>,
   ): string {
     const deudores = resolveDeudores(p);
     const emails = deudores.flatMap((d) => d.emails).filter(Boolean);
-    if (!emails.length) {
-      const legacy = p.cobro_email?.trim();
-      return legacy || '';
-    }
     if (emails.length === 1) return emails[0];
-    return `${emails[0]} +${emails.length - 1}`;
+    if (emails.length > 1) return `${emails[0]} +${emails.length - 1}`;
+    const legacy = p.cobro_email?.trim();
+    if (legacy) return legacy;
+    return deudores.map((d) => d.telefono?.trim()).find(Boolean) || '';
   }
 
   /** Tooltip con todos los deudores y correos de la cuenta. */
@@ -366,7 +392,7 @@ export class DataService {
   ): string {
     const deudores = resolveDeudores(p);
     if (!deudores.length) {
-      return ['Deudor: —', 'Tipo: —', 'Documento: —', 'Correo: —'].join('\n');
+      return ['Deudor: —', 'Tipo: —', 'Documento: —', 'Correo: —', 'Teléfono: —'].join('\n');
     }
 
     const blocks = deudores.map((d, index) => this.formatDeudorBlock(d, index, deudores.length > 1));
@@ -379,6 +405,7 @@ export class DataService {
     const docLabel = d.tipo_persona === 'natural' ? 'CC' : 'NIT';
     const tipo = d.tipo_persona === 'natural' ? 'Persona natural' : 'Persona jurídica';
     const emails = d.emails.map((e) => e.trim()).filter(Boolean);
+    const telefono = d.telefono?.trim() || '';
     const header = multi ? `Deudor ${index + 1}: ${nombre}` : `Deudor: ${nombre}`;
     const lines = [header, `Tipo: ${tipo}`, `${docLabel}: ${documento}`];
     if (!emails.length) {
@@ -391,6 +418,7 @@ export class DataService {
         lines.push(`  • ${email}`);
       }
     }
+    lines.push(`Teléfono: ${telefono || '—'}`);
     return lines.join('\n');
   }
 
@@ -407,24 +435,31 @@ export class DataService {
   /**
    * Cobro y mora por **cuenta** (unidad).
    *
-   * **Contrato con backend:** `edad_mora_dias` en la respuesta de `GET …/cuentas/:id` es la
-   * fuente principal. Se calcula en servidor al crear/borrar historial (`refreshCuentaMoraAggregates`):
-   * mismo criterio que el fallback aquí: **máximo** de `dias_en_mora` por línea de historial.
-   * No duplicar `computeDiasEnMora` en el cliente salvo datos ausentes en caché.
+   * **Contrato con backend:** `edad_mora_dias` en GET de cuenta es la fuente principal.
+   * El servidor la calcula en vivo: plazo día 30 del periodo, el 1 del mes siguiente = 30 días
+   * (meses comerciales de 30), y la cuenta toma el MAX del historial. Sin historial, usa
+   * inicio de cobro o el alta de la cuenta. Fallback local: máximo de `dias_en_mora` en caché
+   * si el API aún no trae el agregado.
    *
-   * `fecha_inicio_cobro` solo refleja lo que envía el API (o fallback por historial).
+   * `fecha_inicio_cobro`: API, primer movimiento, o alta de la cuenta (`created_at`).
    */
   getResumenMoraCobroParaCuenta(p: Cuenta): {
     edad_mora_dias: number | null;
     fecha_inicio_cobro: string | null;
     fecha_fin_cobro: string | null;
+    fecha_alta: string | null;
   } {
     const historial = this.getHistorialByCuenta(p.id);
     const maxMoraFromHist = this.maxDiasMoraFromHistorial(historial);
+    const fechaAlta = this.fechaDiaDesdeIso(p.created_at);
     return {
       edad_mora_dias: p.edad_mora_dias ?? maxMoraFromHist,
-      fecha_inicio_cobro: p.fecha_inicio_cobro?.trim() || this.fechaInicioCobroDesdeHistorial(historial),
+      fecha_inicio_cobro:
+        p.fecha_inicio_cobro?.trim() ||
+        this.fechaInicioCobroDesdeHistorial(historial) ||
+        fechaAlta,
       fecha_fin_cobro: p.fecha_fin_cobro?.trim() || this.fechaFinCobroDesdeHistorial(historial),
+      fecha_alta: fechaAlta,
     };
   }
 
@@ -699,6 +734,15 @@ export class DataService {
     return String(g.detalle?.estado ?? g.estado ?? '').trim();
   }
 
+  formatGestionEstadoLabel(g: Pick<Gestion, 'detalle' | 'estado'>): string {
+    const estado = this.getGestionEstado(g);
+    return this.estadoGestionLabels[estado] || estado || '—';
+  }
+
+  formatGestionTipo(g: Pick<Gestion, 'tipo' | 'origen' | 'detalle' | 'email_reminder_id'>): string {
+    return this.isGestionEmailReminder(g) ? 'Correo' : 'Manual';
+  }
+
   /**
    * Resumen en timeline: si `descripcion` es JSON con `summary`, usa ese campo;
    * si es manual (texto plano), se muestra tal cual.
@@ -858,6 +902,15 @@ export class DataService {
     return this.evolucionSignal();
   }
 
+  getMoraPorCliente(): MoraPorClienteRow[] {
+    return buildMoraPorCliente({
+      clientes: this.clientesSignal(),
+      cuentas: this.cuentasSignal(),
+      deudaDe: (p) => this.getDeudaActualParaCuenta(p),
+      edadMoraDe: (p) => this.getResumenMoraCobroParaCuenta(p).edad_mora_dias,
+    });
+  }
+
   get mockClientes(): Cliente[] {
     return this.clientesSignal();
   }
@@ -891,11 +944,10 @@ export class DataService {
     ]);
   }
 
-  async loadGraficosData(months = 12): Promise<void> {
+  async loadGraficosData(_months = 12): Promise<void> {
     await Promise.all([
       this.loadMetricsDashboard(),
       this.loadDistribucionEstados(),
-      this.loadEvolucionCartera(months),
       this.loadClientes(),
       this.loadCuentas(),
     ]);
@@ -938,9 +990,7 @@ export class DataService {
     const withPayloadDeudores: Cuenta = {
       ...cuenta,
       saldo_inicial: cuenta.saldo_inicial ?? payload.saldo_inicial,
-      deudores: Array.isArray(cuenta.deudores) && cuenta.deudores.length > 0
-        ? cuenta.deudores
-        : payload.deudores,
+      deudores: mergeDeudoresAfterWrite(cuenta.deudores, payload.deudores),
       cobro_nombre: cuenta.cobro_nombre || payload.cobro_nombre,
       cobro_tipo_persona: cuenta.cobro_tipo_persona || payload.cobro_tipo_persona,
       cobro_documento: cuenta.cobro_documento || payload.cobro_documento,
@@ -969,10 +1019,7 @@ export class DataService {
     // (normalizeCuentaMonto prioriza lock/prev sobre el payload del servidor).
     const propiedadConSaldo: Cuenta = {
       ...(nuevoSaldo != null ? { ...cuenta, saldo_inicial: nuevoSaldo } : cuenta),
-      deudores:
-        Array.isArray(cuenta.deudores) && cuenta.deudores.length > 0
-          ? cuenta.deudores
-          : payload.deudores ?? prevCuenta?.deudores,
+      deudores: mergeDeudoresAfterWrite(cuenta.deudores, payload.deudores, prevCuenta?.deudores),
     };
     const prevConSaldo =
       nuevoSaldo != null && prevCuenta
@@ -1117,6 +1164,10 @@ export class DataService {
 
   async loadHistorialesForCuentas(propiedades: Pick<Cuenta, 'id'>[]): Promise<void> {
     await Promise.all(propiedades.map((p) => this.loadHistorialByCuenta(p.id)));
+  }
+
+  async loadGestionesForCuentas(propiedades: Pick<Cuenta, 'id'>[]): Promise<void> {
+    await Promise.all(propiedades.map((p) => this.loadGestionesByCuenta(p.id)));
   }
 
   async loadGestionesByCuenta(cuentaId: string): Promise<Gestion[]> {
@@ -1274,11 +1325,8 @@ export class DataService {
   private normalizeCuentaMonto(cuenta: Cuenta, prev?: Cuenta): Cuenta {
     const withDeudores = normalizeCuentaDeudores({
       ...cuenta,
-      // Si el API no trae deudores pero el estado local sí, conserva la lista previa.
-      deudores:
-        Array.isArray(cuenta.deudores) && cuenta.deudores.length > 0
-          ? cuenta.deudores
-          : prev?.deudores,
+      // Si el API omite deudores o solo espeja cobro_* (1 item), conserva la lista local más completa.
+      deudores: mergeDeudoresPreferringComplete(cuenta.deudores, prev?.deudores),
     });
     const monto = Number(withDeudores.monto_a_la_fecha);
     const saldoInicial = Number(withDeudores.saldo_inicial);

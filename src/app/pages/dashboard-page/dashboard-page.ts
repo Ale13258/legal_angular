@@ -5,9 +5,18 @@ import { AuthService } from '../../core/services/auth.service';
 import { BalanceCard } from '../../shared/balance-card/balance-card';
 import { StatusBadge } from '../../shared/status-badge/status-badge';
 import { fadeInUp, fadeInUpStagger } from '../../core/animations/animations';
-import type { Cliente, ProcesoLegal } from '../../core/models';
+import type { Cliente, Cuenta, ProcesoLegal, TipoProcesoLegal } from '../../core/models';
+import {
+  ESTADOS_PROCESO_LEGAL_UI,
+  coerceEstadoProcesoLegal,
+  matchesEstadoProcesoLegalFilter,
+} from '../../core/proceso-estado';
 
-type DashboardRow = { cliente: Cliente; cuenta: ProcesoLegal | null };
+type DashboardRow = {
+  cliente: Cliente;
+  procesos: ProcesoLegal[];
+  propiedades: Cuenta[];
+};
 
 @Component({
   selector: 'app-dashboard-page',
@@ -25,7 +34,7 @@ type DashboardRow = { cliente: Cliente; cuenta: ProcesoLegal | null };
               Gestión de Cartera
             </h1>
             <p class="text-primary-foreground/70 mb-6">
-              Administra cuentas, cobros y procesos jurídicos
+              Administra clientes, cobros y procesos jurídicos
             </p>
             <div class="flex flex-wrap gap-3">
               <a
@@ -91,7 +100,7 @@ type DashboardRow = { cliente: Cliente; cuenta: ProcesoLegal | null };
               </svg>
               <input
                 type="text"
-                placeholder="Buscar por cliente o número de cuenta..."
+                placeholder="Buscar por cliente, radicado o propiedad..."
                 [value]="search()"
                 (input)="search.set($any($event.target).value)"
                 class="w-full pl-10 pr-4 py-2 rounded-full border border-input bg-background"
@@ -103,9 +112,9 @@ type DashboardRow = { cliente: Cliente; cuenta: ProcesoLegal | null };
               class="w-full sm:w-[160px] rounded-full border border-input bg-background px-4 py-2"
             >
               <option value="todos">Todos los estados</option>
-              <option value="activa">ACTIVA</option>
-              <option value="cerrada">FINALIZADO</option>
-              <option value="en_proceso">EN PROCESO</option>
+              @for (opt of estadoFiltroOpciones; track opt.value) {
+                <option [value]="opt.value">{{ opt.label }}</option>
+              }
             </select>
             <select
               [value]="filterTipo()"
@@ -129,67 +138,51 @@ type DashboardRow = { cliente: Cliente; cuenta: ProcesoLegal | null };
               <thead>
                 <tr class="border-b border-border">
                   <th class="text-left px-6 py-4 text-xs font-semibold text-muted-foreground uppercase">Cliente</th>
-                  <th class="text-left px-6 py-4 text-xs font-semibold text-muted-foreground uppercase">Cuenta</th>
+                  <th class="text-left px-6 py-4 text-xs font-semibold text-muted-foreground uppercase">Propiedades</th>
+                  <th class="text-left px-6 py-4 text-xs font-semibold text-muted-foreground uppercase">No. RADICADO</th>
                   <th class="text-left px-6 py-4 text-xs font-semibold text-muted-foreground uppercase">Tipo</th>
                   <th class="text-left px-6 py-4 text-xs font-semibold text-muted-foreground uppercase">Estado</th>
                   <th class="text-right px-6 py-4 text-xs font-semibold text-muted-foreground uppercase">Acciones</th>
                 </tr>
               </thead>
               <tbody>
-                @for (row of filtered(); track (row.cuenta?.id ?? row.cliente.id); let i = $index) {
+                @for (row of filtered(); track row.cliente.id; let i = $index) {
                   <tr
                     [@fadeInUpStagger]="{ value: '', params: { delay: i * 50, duration: 200, offset: 5, ease: 'ease-out' } }"
                     class="border-b border-border/50 hover:bg-secondary/50"
                   >
                     <td class="px-6 py-4 font-medium">{{ row.cliente.nombre }}</td>
+                    <td class="px-6 py-4 text-sm text-muted-foreground">
+                      {{ resumenPropiedades(row) }}
+                    </td>
                     <td class="px-6 py-4 text-muted-foreground font-mono text-sm">
-                      @if (row.cuenta) {
-                        {{ row.cuenta.numero_cuenta }}
-                      } @else {
-                        -
-                      }
+                      {{ resumenRadicados(row) }}
                     </td>
                     <td class="px-6 py-4">
-                      @if (row.cuenta) {
+                      @if (tipoResumen(row); as tipo) {
                         <app-status-badge
-                          [label]="data.tipoProcesoLegalLabels[row.cuenta.tipo]"
-                          [variant]="
-                            row.cuenta.tipo === 'juridica'
-                              ? 'juridica'
-                              : row.cuenta.tipo === 'extrajudicial'
-                                ? 'pendiente'
-                                : 'parcial'
-                          "
+                          [label]="tipo.label"
+                          [variant]="tipo.variant"
                         />
                       } @else {
                         <span class="text-muted-foreground">-</span>
                       }
                     </td>
                     <td class="px-6 py-4">
-                      @if (row.cuenta) {
-                        @if (row.cuenta.estado) {
-                          <app-status-badge
-                            [label]="data.estadoProcesoLegalLabels[row.cuenta.estado]"
-                            [variant]="
-                              row.cuenta.estado === 'activa'
-                                ? 'activa'
-                                : row.cuenta.estado === 'cerrada'
-                                  ? 'cerrada'
-                                  : 'en_proceso'
-                            "
-                          />
-                        } @else {
-                          <app-status-badge label="Estado no informado" variant="default" />
-                        }
+                      @if (row.procesos.length > 0) {
+                        <app-status-badge
+                          [label]="data.formatEstadoProcesoLegal(estadoResumen(row))"
+                          [variant]="data.variantEstadoProcesoLegal(estadoResumen(row))"
+                        />
                       } @else {
-                        <app-status-badge label="Sin cuenta" variant="sin_cuenta" />
+                        <app-status-badge label="Sin radicado" variant="sin_cuenta" />
                       }
                     </td>
                     <td class="px-6 py-4 text-right">
                       <a
                         [routerLink]="['/clientes', row.cliente.id]"
                         class="inline-flex p-2 rounded-lg hover:bg-muted"
-                        title="Ver"
+                        title="Ver cliente"
                       >
                         <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
                       </a>
@@ -215,52 +208,57 @@ export class DashboardPage {
   search = signal('');
   filterEstado = signal('todos');
   filterTipo = signal('todos');
+  readonly estadoFiltroOpciones = ESTADOS_PROCESO_LEGAL_UI;
 
-  private cuentasByClienteId = computed(() => {
+  private procesosByClienteId = computed(() => {
     const map = new Map<string, ProcesoLegal[]>();
-    for (const cu of this.data.mockProcesosLegales) {
-      const list = map.get(cu.cliente_id);
-      if (list) list.push(cu);
-      else map.set(cu.cliente_id, [cu]);
+    for (const proceso of this.data.mockProcesosLegales) {
+      const list = map.get(proceso.cliente_id);
+      if (list) list.push(proceso);
+      else map.set(proceso.cliente_id, [proceso]);
     }
     return map;
   });
 
-  /**
-   * "Left join": mostrar SIEMPRE el cliente en el dashboard,
-   * y la cuenta solo si existe.
-   */
-  rows = computed(() => {
-    const rows: Array<DashboardRow> = [];
-    const clientes = this.data.mockClientes;
-    const cuentasMap = this.cuentasByClienteId();
-
-    for (const cliente of clientes) {
-      const cuentas = cuentasMap.get(cliente.id);
-      if (cuentas && cuentas.length > 0) {
-        for (const cuenta of cuentas) rows.push({ cliente, cuenta });
-      } else {
-        rows.push({ cliente, cuenta: null });
-      }
+  private propiedadesByClienteId = computed(() => {
+    const map = new Map<string, Cuenta[]>();
+    for (const cuenta of this.data.mockCuentas) {
+      const list = map.get(cuenta.cliente_id);
+      if (list) list.push(cuenta);
+      else map.set(cuenta.cliente_id, [cuenta]);
     }
+    return map;
+  });
 
-    return rows;
+  /** Un renglón por cliente: las propiedades y radicados viven en el detalle. */
+  rows = computed(() => {
+    const procesosMap = this.procesosByClienteId();
+    const propiedadesMap = this.propiedadesByClienteId();
+    return this.data.mockClientes.map((cliente) => ({
+      cliente,
+      procesos: procesosMap.get(cliente.id) ?? [],
+      propiedades: propiedadesMap.get(cliente.id) ?? [],
+    }));
   });
 
   filtered = computed(() => {
     const s = this.search().toLowerCase();
     const est = this.filterEstado();
-    const tip = this.filterTipo();
+    const tip = this.filterTipo() as TipoProcesoLegal | 'todos';
     return this.rows().filter((row) => {
-      const clienteNombre = row.cliente.nombre?.toLowerCase() ?? '';
-      const cuentaNumero = row.cuenta?.numero_cuenta?.toLowerCase() ?? '';
-
-      const matchSearch = !s || clienteNombre.includes(s) || cuentaNumero.includes(s);
-      const matchEstado = est === 'todos' || row.cuenta?.estado === est;
-      const matchTipo = tip === 'todos' || row.cuenta?.tipo === tip;
-
-      // Si hay filtros de cuenta (estado/tipo) y la fila no tiene cuenta,
-      // entonces no puede coincidir (salvo que ambos filtros sean 'todos').
+      const matchSearch =
+        !s ||
+        row.cliente.nombre.toLowerCase().includes(s) ||
+        row.procesos.some((p) => p.numero_cuenta.toLowerCase().includes(s)) ||
+        row.propiedades.some(
+          (p) =>
+            p.identificador.toLowerCase().includes(s) || p.direccion.toLowerCase().includes(s),
+        );
+      const matchEstado =
+        est === 'todos' ||
+        (row.procesos.length > 0 &&
+          row.procesos.some((p) => matchesEstadoProcesoLegalFilter(p.estado, est)));
+      const matchTipo = tip === 'todos' || row.procesos.some((p) => p.tipo === tip);
       return matchSearch && matchEstado && matchTipo;
     });
   });
@@ -268,6 +266,39 @@ export class DashboardPage {
   totalCartera = computed(() => this.data.getTotalCartera());
   clientesActivos = computed(() => this.data.getClientesActivos());
   procesosLegalesActivos = computed(() => this.data.getProcesosLegalesActivos());
+
+  resumenPropiedades(row: DashboardRow): string {
+    const n = row.propiedades.length;
+    if (n === 0) return '—';
+    if (n === 1) return row.propiedades[0]!.identificador;
+    return `${n} propiedades`;
+  }
+
+  resumenRadicados(row: DashboardRow): string {
+    const n = row.procesos.length;
+    if (n === 0) return '—';
+    if (n === 1) return row.procesos[0]!.numero_cuenta;
+    return `${n} radicados`;
+  }
+
+  tipoResumen(row: DashboardRow): { label: string; variant: string } | null {
+    if (row.procesos.length === 0) return null;
+    const first = row.procesos[0]!.tipo;
+    const mismoTipo = row.procesos.every((p) => p.tipo === first);
+    if (!mismoTipo) return { label: 'VARIOS', variant: 'default' };
+    return {
+      label: this.data.tipoProcesoLegalLabels[first] ?? first,
+      variant:
+        first === 'juridica' ? 'juridica' : first === 'extrajudicial' ? 'pendiente' : 'parcial',
+    };
+  }
+
+  estadoResumen(row: DashboardRow): string {
+    if (row.procesos.some((p) => coerceEstadoProcesoLegal(p.estado) === 'en_proceso')) {
+      return 'en_proceso';
+    }
+    return 'cerrada';
+  }
 
   constructor() {
     void this.init();

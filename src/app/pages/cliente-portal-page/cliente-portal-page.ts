@@ -149,13 +149,13 @@ import { fadeInUp, fadeInUpStagger } from '../../core/animations/animations';
         </section>
 
         <section class="mb-10">
-          <h2 class="font-display font-semibold text-lg text-foreground mb-4">Cuentas</h2>
+          <h2 class="font-display font-semibold text-lg text-foreground mb-4">No. RADICADO</h2>
           <div class="bg-card rounded-2xl shadow-card border border-border/50 overflow-hidden">
             <div class="table-wrap overflow-x-auto">
               <table class="w-full min-w-[480px]">
                 <thead>
                   <tr class="border-b border-border">
-                    <th class="text-left px-4 sm:px-6 py-3 text-xs font-semibold text-muted-foreground uppercase">Nº cuenta</th>
+                    <th class="text-left px-4 sm:px-6 py-3 text-xs font-semibold text-muted-foreground uppercase">No. RADICADO</th>
                     <th class="text-left px-4 sm:px-6 py-3 text-xs font-semibold text-muted-foreground uppercase">Tipo</th>
                     <th class="text-left px-4 sm:px-6 py-3 text-xs font-semibold text-muted-foreground uppercase">Estado</th>
                     <th class="text-left px-4 sm:px-6 py-3 text-xs font-semibold text-muted-foreground uppercase">Etapa</th>
@@ -186,7 +186,7 @@ import { fadeInUp, fadeInUpStagger } from '../../core/animations/animations';
               </table>
             </div>
             @if (procesosLegales().length === 0) {
-              <p class="text-center py-8 text-muted-foreground text-sm">No hay cuentas asociadas.</p>
+              <p class="text-center py-8 text-muted-foreground text-sm">No hay radicados asociados.</p>
             }
           </div>
         </section>
@@ -409,7 +409,10 @@ export class ClientePortalPage {
         this.data.loadProcesosLegalesByCliente(id),
       ]);
       const propiedadesDetalle = await this.data.loadCuentaDetallesForCuentas(cuentas);
-      await this.data.loadHistorialesForCuentas(propiedadesDetalle);
+      await Promise.all([
+        this.data.loadHistorialesForCuentas(propiedadesDetalle),
+        this.data.loadGestionesForCuentas(propiedadesDetalle),
+      ]);
     } catch {
       this.error.set('No se pudo cargar la información del portal.');
     } finally {

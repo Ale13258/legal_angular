@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest';
 import type { Cuenta } from '../models';
 import {
   collectCuentaEmails,
+  coerceDeudores,
   formatNombresDeudores,
+  mergeDeudoresAfterWrite,
+  mergeDeudoresPreferringComplete,
   mirrorCobroFromDeudores,
   normalizeCuentaDeudores,
   resolveDeudores,
@@ -36,6 +39,7 @@ describe('normalize-cuenta-deudores', () => {
         tipo_persona: 'natural',
         documento: '123',
         emails: ['ana@test.com'],
+        telefono: null,
       },
     ]);
   });
@@ -137,5 +141,58 @@ describe('normalize-cuenta-deudores', () => {
       'HELENA LUCIA CARVAJAL HURTADO y MIGUEL CARVAJAL MANGONES',
     );
     expect(saludoEstimadoDeudores(cuenta)).toBe('Estimados(as)');
+  });
+
+  it('coerceDeudores acepta JSON string y objeto único', () => {
+    const asJson = coerceDeudores(
+      JSON.stringify([
+        { nombre: 'Ana', tipo_persona: 'natural', documento: '1', emails: ['a@test.com'] },
+        { nombre: 'Bea', tipo_persona: 'natural', documento: '2', emails: ['b@test.com'] },
+      ]),
+    );
+    expect(asJson).toHaveLength(2);
+    expect(coerceDeudores({ nombre: 'Solo', documento: '9', emails: ['s@test.com'] })).toEqual([
+      { nombre: 'Solo', tipo_persona: 'natural', documento: '9', emails: ['s@test.com'], telefono: null },
+    ]);
+  });
+
+  it('conserva deudor con teléfono y sin correos', () => {
+    expect(
+      coerceDeudores({
+        nombre: 'Luis',
+        tipo_persona: 'natural',
+        documento: '88',
+        emails: [],
+        telefono: '3001234567',
+      }),
+    ).toEqual([
+      {
+        nombre: 'Luis',
+        tipo_persona: 'natural',
+        documento: '88',
+        emails: [],
+        telefono: '3001234567',
+      },
+    ]);
+  });
+
+  it('mergeDeudoresAfterWrite conserva lo enviado aunque el API espeje un solo deudor', () => {
+    const sent = [
+      { nombre: 'Juan', tipo_persona: 'natural' as const, documento: '111', emails: ['juan@test.com'] },
+      { nombre: 'María', tipo_persona: 'natural' as const, documento: '222', emails: ['maria@test.com'] },
+    ];
+    const fromApi = [sent[0]];
+    expect(mergeDeudoresAfterWrite(fromApi, sent)).toHaveLength(2);
+    expect(mergeDeudoresAfterWrite(fromApi, sent)[1]?.nombre).toBe('María');
+  });
+
+  it('mergeDeudoresPreferringComplete no deja que un GET truncado pise la lista local', () => {
+    const prev = [
+      { nombre: 'Juan', tipo_persona: 'natural' as const, documento: '111', emails: ['juan@test.com'] },
+      { nombre: 'María', tipo_persona: 'natural' as const, documento: '222', emails: ['maria@test.com'] },
+    ];
+    expect(mergeDeudoresPreferringComplete([prev[0]], prev)).toHaveLength(2);
+    expect(mergeDeudoresPreferringComplete(undefined, prev)).toHaveLength(2);
+    expect(mergeDeudoresPreferringComplete(prev, [prev[0]])).toHaveLength(2);
   });
 });

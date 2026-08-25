@@ -4,6 +4,53 @@ function asTipoPersona(value: unknown): TipoPersona {
   return value === 'juridica' ? 'juridica' : 'natural';
 }
 
+/** Algunos backends envían jsonb como string u un objeto único en vez de array. */
+export function coerceDeudores(raw: unknown): DeudorCobro[] {
+  let value = raw;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return [];
+    try {
+      value = JSON.parse(trimmed) as unknown;
+    } catch {
+      return [];
+    }
+  }
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => normalizeDeudor(item as Partial<DeudorCobro> & { email?: string }))
+      .filter((d): d is DeudorCobro => d != null);
+  }
+  if (value && typeof value === 'object') {
+    const one = normalizeDeudor(value as Partial<DeudorCobro> & { email?: string });
+    return one ? [one] : [];
+  }
+  return [];
+}
+
+/**
+ * Tras un GET: no reemplazar una lista local más completa por un espejo de un solo deudor.
+ * Cubre APIs que persisten `cobro_*` y sintetizan `deudores: [primero]`.
+ */
+export function mergeDeudoresPreferringComplete(incoming: unknown, previous?: unknown): DeudorCobro[] {
+  const next = coerceDeudores(incoming);
+  const prev = coerceDeudores(previous);
+  if (next.length === 0) return prev;
+  if (prev.length > next.length) return prev;
+  return next;
+}
+
+/** Tras POST/PATCH: lo que acabamos de enviar es la fuente de verdad de esa mutación. */
+export function mergeDeudoresAfterWrite(
+  incoming: unknown,
+  sent?: unknown,
+  previous?: unknown,
+): DeudorCobro[] {
+  const fromSent = coerceDeudores(sent);
+  if (fromSent.length) return fromSent;
+  return mergeDeudoresPreferringComplete(incoming, previous);
+}
+
 function cleanEmails(raw: unknown): string[] {
   if (typeof raw === 'string') {
     return cleanEmails(raw.split(/[,;]+/));
@@ -26,33 +73,30 @@ function normalizeDeudor(raw: Partial<DeudorCobro> & { email?: string }): Deudor
   const nombre = String(raw.nombre ?? '').trim();
   const documento = String(raw.documento ?? '').trim();
   const tipo_persona = asTipoPersona(raw.tipo_persona);
+  const telefono = String(raw.telefono ?? '').trim() || null;
   let emails = cleanEmails(raw.emails);
   if (!emails.length && raw.email != null) {
     const single = String(raw.email).trim();
     if (single) emails = [single];
   }
-  if (!nombre && !documento && !emails.length) return null;
+  if (!nombre && !documento && !emails.length && !telefono) return null;
   return {
     nombre,
     tipo_persona,
     documento,
     emails: emails.length ? emails : [],
+    telefono,
   };
 }
 
 /** Construye la lista de deudores desde `deudores` o, en legacy, desde `cobro_*`. */
 export function resolveDeudores(
-  p: Pick<
-    Cuenta,
-    'deudores' | 'cobro_nombre' | 'cobro_tipo_persona' | 'cobro_documento' | 'cobro_email'
-  >,
+  p: Pick<Cuenta, 'cobro_nombre' | 'cobro_tipo_persona' | 'cobro_documento' | 'cobro_email'> & {
+    deudores?: unknown;
+  },
 ): DeudorCobro[] {
-  if (Array.isArray(p.deudores) && p.deudores.length > 0) {
-    const list = p.deudores
-      .map((d) => normalizeDeudor(d))
-      .filter((d): d is DeudorCobro => d != null);
-    if (list.length) return list;
-  }
+  const list = coerceDeudores(p.deudores);
+  if (list.length) return list;
 
   const legacy = normalizeDeudor({
     nombre: p.cobro_nombre,

@@ -67,8 +67,12 @@ describe('DataService', () => {
   });
 
   afterEach(() => {
-    httpMock?.verify();
-    clearLocalStorage();
+    try {
+      httpMock?.verify();
+    } finally {
+      clearLocalStorage();
+      TestBed.resetTestingModule();
+    }
   });
 
   it('should be created', () => {
@@ -127,6 +131,43 @@ describe('DataService', () => {
     })).toBe('juan@test.com +2');
   });
 
+  it('formatDeudorEmailCorto usa teléfono si no hay correo', () => {
+    expect(
+      service.formatDeudorEmailCorto({
+        cobro_nombre: 'Luis',
+        cobro_tipo_persona: 'natural',
+        cobro_documento: '88',
+        cobro_email: '',
+        deudores: [
+          {
+            nombre: 'Luis',
+            tipo_persona: 'natural',
+            documento: '88',
+            emails: [],
+            telefono: '3001234567',
+          },
+        ],
+      }),
+    ).toBe('3001234567');
+    expect(
+      service.formatDeudorTooltip({
+        cobro_nombre: 'Luis',
+        cobro_tipo_persona: 'natural',
+        cobro_documento: '88',
+        cobro_email: '',
+        deudores: [
+          {
+            nombre: 'Luis',
+            tipo_persona: 'natural',
+            documento: '88',
+            emails: [],
+            telefono: '3001234567',
+          },
+        ],
+      }),
+    ).toContain('Teléfono: 3001234567');
+  });
+
   it('should format invalid currency values as 0 COP', () => {
     const text = service.formatCurrency(Number.NaN as unknown as number);
     expect(text).not.toContain('NaN');
@@ -154,6 +195,29 @@ describe('DataService', () => {
   it('should format fecha corta or em dash for invalid', () => {
     expect(service.formatFechaCorta('')).toBe('—');
     expect(service.formatFechaCorta('2026-03-15')).not.toBe('—');
+    expect(service.formatFechaCorta('2026-03-15T12:00:00.000Z')).not.toBe('—');
+  });
+
+  it('resumen de cobro usa created_at si no hay fecha_inicio_cobro', () => {
+    const cuenta: Cuenta = {
+      id: 'prop-inicio-alta',
+      cliente_id: 'cliente-1',
+      tipo_cuenta: 'apartamento',
+      identificador: 'Apto Alta',
+      direccion: 'Calle 1',
+      notas: '',
+      ...sampleCobroCuenta,
+      saldo_inicial: 1000,
+      monto_a_la_fecha: 1000,
+      created_at: '2026-08-12T15:00:00.000Z',
+      fecha_inicio_cobro: null,
+    };
+    const resumen = service.getResumenMoraCobroParaCuenta(cuenta);
+    expect(resumen.fecha_inicio_cobro).toBe('2026-08-12');
+    expect(resumen.fecha_alta).toBe('2026-08-12');
+    expect(service.formatFechaCorta(resumen.fecha_inicio_cobro)).not.toBe('—');
+    expect(service.formatResumenMoraTooltip(resumen)).toContain('Inicio cobro');
+    expect(service.formatResumenMoraTooltip(resumen)).not.toContain('Inicio cobro: —');
   });
 
   it('findClienteDuplicado detecta documento con formato distinto', () => {
@@ -610,7 +674,7 @@ describe('DataService', () => {
     };
 
     const loadP = service.loadProcesosLegalesByCliente(clienteId);
-    const reqLoad0 = httpMock.expectOne(apiUrl(`/clientes/${clienteId}/cuentas`));
+    const reqLoad0 = httpMock.expectOne(apiUrl(`/clientes/${clienteId}/procesos-legales`));
     reqLoad0.flush([initial]);
     await loadP;
 
@@ -622,11 +686,11 @@ describe('DataService', () => {
       cuenta_id: undefined,
     });
 
-    const reqPatch = httpMock.expectOne(apiUrl(`/cuentas/${cuentaId}`));
-    reqPatch.flush({});
+    const reqPatch = httpMock.expectOne(apiUrl(`/procesos-legales/${cuentaId}`));
+    reqPatch.flush({ ...afterReload });
     await Promise.resolve();
 
-    const reqLoad1 = httpMock.expectOne(apiUrl(`/clientes/${clienteId}/cuentas`));
+    const reqLoad1 = httpMock.expectOne(apiUrl(`/clientes/${clienteId}/procesos-legales`));
     reqLoad1.flush([afterReload]);
     // Dejar que la promesa de updateProcesoLegal avance hasta solicitar métricas (macrotarea; Promise.resolve no basta en Vitest).
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
@@ -826,6 +890,64 @@ describe('DataService', () => {
     expect(created.deudores?.[0].emails).toContain('juan2@test.com');
   });
 
+  it('createCuenta conserva deudores extra si el reload del API solo espeja cobro_*', async () => {
+    const deudores = [
+      {
+        nombre: 'Juan',
+        tipo_persona: 'natural' as const,
+        documento: '111',
+        emails: ['juan@test.com'],
+      },
+      {
+        nombre: 'María',
+        tipo_persona: 'natural' as const,
+        documento: '222',
+        emails: ['maria@test.com'],
+      },
+    ];
+    const payload = {
+      cliente_id: 'cliente-1',
+      tipo_cuenta: 'apartamento' as const,
+      identificador: 'Apto Multi Truncado',
+      direccion: 'Calle 2',
+      notas: '',
+      saldo_inicial: 50000,
+      deudores,
+      cobro_nombre: 'Juan',
+      cobro_tipo_persona: 'natural' as const,
+      cobro_documento: '111',
+      cobro_email: 'juan@test.com',
+    };
+
+    const createP = service.createCuenta(payload);
+    const req = httpMock.expectOne(apiUrl('/cuentas'));
+    req.flush({
+      id: 'prop-trunc',
+      ...payload,
+      deudores: [deudores[0]],
+      monto_a_la_fecha: 50000,
+      created_at: '2026-01-01T00:00:00.000Z',
+    });
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    const reqReload = httpMock.expectOne(apiUrl('/clientes/cliente-1/cuentas'));
+    reqReload.flush([
+      {
+        id: 'prop-trunc',
+        ...payload,
+        deudores: [deudores[0]],
+        cobro_nombre: 'Juan',
+        cobro_email: 'juan@test.com',
+        monto_a_la_fecha: 50000,
+        created_at: '2026-01-01T00:00:00.000Z',
+      },
+    ]);
+    await createP;
+
+    const stored = service.getCuentaById('prop-trunc');
+    expect(stored?.deudores).toHaveLength(2);
+    expect(stored?.deudores?.[1].nombre).toBe('María');
+  });
+
   it('loadCuentas sintetiza deudores desde cobro_* legacy', async () => {
     const loadP = service.loadCuentas();
     const req = httpMock.expectOne(apiUrl('/cuentas'));
@@ -849,6 +971,7 @@ describe('DataService', () => {
         tipo_persona: 'natural',
         documento: '123456789',
         emails: ['cobro@test.com'],
+        telefono: null,
       },
     ]);
   });
@@ -920,7 +1043,7 @@ describe('DataService', () => {
       gestion_id: 'g1',
     };
     const loadP = service.loadPaymentRemindersByCuenta(cuentaId);
-    const listReq = httpMock.expectOne(apiUrl(`/cuentas/${cuentaId}/payment-reminders`));
+    const listReq = httpMock.expectOne(apiUrl(`/payment-reminders/cuentas/${cuentaId}/emails`));
     expect(listReq.request.method).toBe('GET');
     listReq.flush([listItem]);
     const listed = await loadP;

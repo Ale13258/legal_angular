@@ -51,6 +51,7 @@ import { resolveDeudores } from '../../core/utils/normalize-cuenta-deudores';
                 <p class="email-item">• {{ email }}</p>
               }
             }
+            <p>Teléfono: {{ d.telefono?.trim() || '—' }}</p>
           </div>
           @if (!last) {
             <div class="deudor-sep"></div>

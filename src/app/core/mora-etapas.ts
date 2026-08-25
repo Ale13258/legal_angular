@@ -18,9 +18,9 @@ const ETIQUETAS: Record<EtapaCobranzaCodigo, string> = {
   persuasivo_31_60:
     'Cobros persuasivos, etapa pre-jurídica (31–60 días): llamadas, mensajes, correos de cobro',
   probable_juridico_61_90:
-    'Probabilidad de inicio de cobro jurídico (61–90 días): notificación formal por correo',
+    'Probabilidad de inicio de cobro jurídico (61–90 días): notificación de inicio de cobro jurídico por correo',
   juridico_mas_90:
-    'Etapa jurídica (más de 90 días): presentación de demanda; gestiones de cobro habituales',
+    'Etapa jurídica (más de 90 días): presentación de la demanda; gestiones de cobro habituales',
 };
 
 const ETIQUETAS_CORTAS: Record<EtapaCobranzaCodigo, string> = {

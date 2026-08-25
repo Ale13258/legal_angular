@@ -6,6 +6,7 @@ import { GraficosReportDialog } from '../../components/graficos-report-dialog/gr
 import { BalanceCard } from '../../shared/balance-card/balance-card';
 import { fadeInUp } from '../../core/animations/animations';
 import type { ChartConfiguration } from 'chart.js';
+import { pickClienteMasAntiguo } from '../../core/mora-por-cliente';
 
 @Component({
   selector: 'app-graficos-page',
@@ -114,10 +115,34 @@ import type { ChartConfiguration } from 'chart.js';
           [@fadeInUp]="{ value: '', params: { delay: 150, duration: 400, offset: 10, ease: 'ease-out' } }"
           class="interactive-card bg-card rounded-2xl shadow-card p-4 sm:p-6 border border-border/50 min-w-0"
         >
-          <h3 class="font-display font-bold text-foreground mb-4">Cobrado vs Pagado por Periodo</h3>
-          <div class="h-[280px]">
-            <canvas baseChart [data]="barCobradoPagadoData()" [options]="barOptions" type="bar"></canvas>
+          <div class="flex flex-wrap items-baseline justify-between gap-2 mb-3">
+            <h3 class="font-display font-bold text-foreground">Mora y antigüedad por cliente</h3>
+            @if (clienteMasAntiguo(); as viejo) {
+              <p class="text-xs text-muted-foreground">
+                Más antiguo: <strong class="text-foreground">{{ viejo.nombre }}</strong>
+                · {{ data.formatDiasMora(viejo.antiguedad_dias) }}
+              </p>
+            }
           </div>
+          @if (hasMoraClienteData()) {
+            @if (moraChartTruncado()) {
+              <p class="text-xs text-muted-foreground mb-2">
+                Mostrando los {{ moraChartRows().length }} clientes con mayor % de mora.
+              </p>
+            }
+            <div class="h-[250px]">
+              <canvas
+                baseChart
+                [data]="barMoraClienteData()"
+                [options]="barMoraClienteOptions()"
+                type="bar"
+              ></canvas>
+            </div>
+          } @else {
+            <div class="h-[250px] rounded-xl bg-muted/30 flex items-center justify-center text-sm text-muted-foreground text-center px-6">
+              No hay clientes suficientes para graficar la mora.
+            </div>
+          }
         </div>
       </div>
 
@@ -136,13 +161,6 @@ export class GraficosPage {
   readonly error = signal<string | null>(null);
   reportOpen = signal(false);
   pieOptions: ChartConfiguration<'pie'>['options'] = { responsive: true, maintainAspectRatio: false };
-  barOptions: ChartConfiguration<'bar'>['options'] = {
-    responsive: true,
-    maintainAspectRatio: false,
-    scales: {
-      y: { beginAtZero: true },
-    },
-  };
 
   totalCartera = computed(() => this.data.getTotalCartera());
   clientesCount = computed(() => this.data.mockClientes.length);
@@ -206,19 +224,83 @@ export class GraficosPage {
     };
   });
 
-  barCobradoPagadoData = computed((): ChartConfiguration<'bar'>['data'] => {
-    const series = this.data.getEvolucionCartera();
-    const labels = series.map((s) => s.periodo);
-    const cobrado = series.map((s) => s.total);
-    const pagado = series.map((s) => 0);
+  moraPorCliente = computed(() => this.data.getMoraPorCliente());
+  hasMoraClienteData = computed(() => this.moraPorCliente().length > 0);
+  clienteMasAntiguo = computed(() => pickClienteMasAntiguo(this.moraPorCliente()));
+  private readonly moraChartLimit = 8;
+  moraChartRows = computed(() => this.moraPorCliente().slice(0, this.moraChartLimit));
+  moraChartTruncado = computed(() => this.moraPorCliente().length > this.moraChartLimit);
+
+  barMoraClienteData = computed((): ChartConfiguration<'bar'>['data'] => {
+    const rows = this.moraChartRows();
     return {
-      labels,
+      labels: rows.map((r) => this.truncateLabel(r.nombre)),
       datasets: [
-        { data: cobrado, label: 'Cobrado', backgroundColor: '#6b3cc8' },
-        { data: pagado, label: 'Pagado', backgroundColor: '#22c55e' },
+        {
+          data: rows.map((r) => r.porcentaje_mora),
+          label: '% de la mora',
+          backgroundColor: '#6b3cc8',
+          yAxisID: 'y',
+          maxBarThickness: 28,
+        },
+        {
+          data: rows.map((r) => r.antiguedad_dias),
+          label: 'Antigüedad (días)',
+          backgroundColor: '#f59e0b',
+          yAxisID: 'yAntiguedad',
+          maxBarThickness: 28,
+        },
       ],
     };
   });
+
+  barMoraClienteOptions = computed((): ChartConfiguration<'bar'>['options'] => {
+    const rows = this.moraChartRows();
+    return {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          position: 'top',
+          labels: { boxWidth: 12, font: { size: 11 }, padding: 12 },
+        },
+        tooltip: {
+          callbacks: {
+            afterBody: (items) => {
+              const idx = items[0]?.dataIndex ?? -1;
+              const row = rows[idx];
+              if (!row) return [];
+              return [
+                `Deuda: ${this.data.formatCurrency(row.deuda)}`,
+                `Edad en mora: ${this.data.formatDiasMora(row.edad_mora_dias)}`,
+                `Cliente desde: ${this.data.formatFechaCorta(row.created_at)}`,
+              ];
+            },
+          },
+        },
+      },
+      scales: {
+        x: {
+          ticks: { maxRotation: 40, minRotation: 0, autoSkip: true, font: { size: 10 } },
+        },
+        y: {
+          beginAtZero: true,
+          ticks: { font: { size: 10 } },
+        },
+        yAntiguedad: {
+          beginAtZero: true,
+          position: 'right',
+          grid: { drawOnChartArea: false },
+          ticks: { font: { size: 10 } },
+        },
+      },
+    };
+  });
+
+  private truncateLabel(nombre: string): string {
+    const value = nombre.trim();
+    return value.length > 16 ? `${value.slice(0, 14)}…` : value;
+  }
 
   constructor() {
     void this.init();

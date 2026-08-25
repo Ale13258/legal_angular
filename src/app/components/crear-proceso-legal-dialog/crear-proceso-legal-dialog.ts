@@ -2,6 +2,10 @@ import { Component, effect, input, output, signal } from '@angular/core';
 import { DataService } from '../../core/services/data.service';
 import type { ProcesoLegal, EstadoProcesoLegal, EtapaProceso, Cuenta, TipoProcesoLegal } from '../../core/models';
 import {
+  coerceEstadoProcesoLegal,
+  ESTADOS_PROCESO_LEGAL_UI,
+} from '../../core/proceso-estado';
+import {
   ETAPA_PROCESO_DEFAULT,
   ETAPAS_PROCESO_ORDENADAS,
   coerceEtapaProceso,
@@ -16,7 +20,7 @@ import {
       <div class="relative z-50 bg-card rounded-2xl shadow-lg border border-border w-full max-w-lg max-h-[90vh] overflow-y-auto">
         <div class="flex items-center justify-between px-6 py-4 border-b border-border sticky top-0 bg-card">
           <h2 class="font-display text-lg font-bold text-foreground">
-            {{ cuenta() ? 'Editar cuenta de cartera' : 'Nueva cuenta de cartera' }}
+            {{ cuenta() ? 'Editar radicado' : 'Nuevo radicado' }}
           </h2>
           <button
             type="button"
@@ -36,12 +40,12 @@ import {
           }
 
           <div>
-            <label class="block text-sm font-medium text-foreground mb-1.5">Número de cuenta</label>
+            <label class="block text-sm font-medium text-foreground mb-1.5">No. RADICADO</label>
             <input
               type="text"
               [value]="numeroProceso()"
               (input)="numeroProceso.set($any($event.target).value)"
-              placeholder="Ej: CTA-2026-001"
+              placeholder="Ej: 2026-001"
               class="w-full rounded-xl border border-input bg-background px-4 py-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary"
             />
           </div>
@@ -119,7 +123,7 @@ import {
               @if (saving()) {
                 Guardando…
               } @else {
-                {{ cuenta() ? 'Guardar cambios' : 'Crear cuenta' }}
+                {{ cuenta() ? 'Guardar cambios' : 'Crear radicado' }}
               }
             </button>
           </div>
@@ -140,7 +144,7 @@ export class CrearProcesoLegalDialog {
 
   numeroProceso = signal('');
   tipo = signal<TipoProcesoLegal>('juridica');
-  estado = signal<EstadoProcesoLegal>('activa');
+  estado = signal<EstadoProcesoLegal>('en_proceso');
   etapa = signal<EtapaProceso>(ETAPA_PROCESO_DEFAULT);
   /** '' = sin cuenta */
   cuentaId = signal('');
@@ -154,11 +158,7 @@ export class CrearProcesoLegalDialog {
     { value: 'acuerdo_de_pago', label: 'ACUERDO DE PAGO' },
   ];
 
-  estadoOpciones: Array<{ value: EstadoProcesoLegal; label: string }> = [
-    { value: 'activa', label: 'ACTIVA' },
-    { value: 'en_proceso', label: 'EN PROCESO' },
-    { value: 'cerrada', label: 'FINALIZADO' },
-  ];
+  estadoOpciones: Array<{ value: EstadoProcesoLegal; label: string }> = ESTADOS_PROCESO_LEGAL_UI;
 
   /** Catálogo de 13 etapas del proceso de radicación (fuente: proceso-etapas.ts). */
   readonly etapasProceso = ETAPAS_PROCESO_ORDENADAS;
@@ -201,8 +201,7 @@ export class CrearProcesoLegalDialog {
   }
 
   private coerceEstado(v: unknown): EstadoProcesoLegal {
-    const s = String(v ?? '').trim() as EstadoProcesoLegal;
-    return this.estadoOpciones.some((o) => o.value === s) ? s : 'activa';
+    return coerceEstadoProcesoLegal(v);
   }
 
   private coerceEtapa(v: unknown): EtapaProceso {
@@ -217,7 +216,7 @@ export class CrearProcesoLegalDialog {
   async guardar(): Promise<void> {
     const num = this.numeroProceso().trim();
     if (!num) {
-      this.errorMsg.set('Indica el número de cuenta.');
+      this.errorMsg.set('Indica el No. RADICADO.');
       return;
     }
     this.errorMsg.set(null);
@@ -249,8 +248,8 @@ export class CrearProcesoLegalDialog {
     } catch {
       this.errorMsg.set(
         this.cuenta()
-          ? 'No se pudo editar la cuenta. Revisa los datos o el servidor e intenta de nuevo.'
-          : 'No se pudo crear la cuenta. Revisa los datos o el servidor e intenta de nuevo.'
+          ? 'No se pudo editar el radicado. Revisa los datos o el servidor e intenta de nuevo.'
+          : 'No se pudo crear el radicado. Revisa los datos o el servidor e intenta de nuevo.'
       );
     } finally {
       this.saving.set(false);
@@ -260,7 +259,7 @@ export class CrearProcesoLegalDialog {
   private reset(): void {
     this.numeroProceso.set('');
     this.tipo.set('juridica');
-    this.estado.set('activa');
+    this.estado.set('en_proceso');
     this.etapa.set(ETAPA_PROCESO_DEFAULT);
     this.cuentaId.set('');
     this.errorMsg.set(null);

@@ -26,13 +26,15 @@ export type TipoCuenta =
 /** @deprecated Use `TipoCuenta`. */
 export type TipoPropiedad = TipoCuenta;
 
-/** Deudor/propietario a cobrar en una unidad. Puede tener varios correos. */
+/** Deudor/propietario a cobrar en una unidad. Puede tener varios correos y/o un teléfono. */
 export interface DeudorCobro {
   nombre: string;
   tipo_persona: TipoPersona;
   documento: string;
-  /** Al menos un correo; el primero es el principal del deudor. */
+  /** Puede estar vacío si hay teléfono. El primero es el principal. */
   emails: string[];
+  /** Contacto cuando no hay correo (o además del correo). */
+  telefono?: string | null;
 }
 
 /** Unidad de cartera (ex `Propiedad`). */
@@ -59,13 +61,12 @@ export interface Cuenta {
   /** Espejo de `deudores[0].emails[0]` para retrocompatibilidad. */
   cobro_email: string;
   /**
-   * Días de mora agregados por unidad. El backend la calcula al persistir historial:
-   * máximo de `dias_en_mora` por movimiento (misma idea que el fallback en el cliente Angular).
-   * La regla fina (vencimiento, FIFO) vive en el servidor (`computeDiasEnMora`).
+   * Días de mora agregados por unidad. El backend los calcula en vivo (plazo día 30,
+   * 1 del mes siguiente = 30 días comerciales; MAX del historial).
    */
   edad_mora_dias?: number | null;
   /**
-   * Opcional: fecha que el backend asocia al inicio de cobro en sistema (no confundir con alta en app).
+   * Inicio de cobro: valor del API o, si falta, el alta de la cuenta.
    */
   fecha_inicio_cobro?: string | null;
   /** Fecha en que la deuda llega a cero según backend o heurística de historial en cliente. */
