@@ -25,7 +25,7 @@ import { fadeInUp } from '../../core/animations/animations';
           class="w-full max-w-md interactive-card rounded-2xl border border-border bg-card p-8 shadow-card"
         >
           <h1 class="font-display text-2xl font-bold text-foreground mb-1">Iniciar sesión</h1>
-          <p class="text-muted-foreground text-sm mb-4">Accede como administrador o cliente.</p>
+          <p class="text-muted-foreground text-sm mb-4">Accede con tu correo y contraseña.</p>
 
           @if (error()) {
             <div class="mb-4 rounded-xl border border-destructive/50 bg-destructive/10 text-destructive text-sm px-4 py-3">
@@ -69,8 +69,8 @@ import { fadeInUp } from '../../core/animations/animations';
           </form>
 
           <p class="mt-6 text-center text-sm text-muted-foreground">
-            ¿Cliente nuevo?
-            <a routerLink="/registro" class="text-primary font-medium hover:underline">Crear cuenta</a>
+            ¿No tienes cuenta?
+            <a routerLink="/registro" class="text-primary font-medium hover:underline">Regístrate</a>
           </p>
           <p class="mt-2 text-center text-sm">
             <a routerLink="/" class="text-muted-foreground hover:text-foreground">Volver al inicio</a>

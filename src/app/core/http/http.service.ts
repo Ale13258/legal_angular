@@ -30,9 +30,18 @@ export class HttpService {
     return firstValueFrom(this.http.patch<T>(this.toUrl(path), body, options));
   }
 
-  /** DELETE con interceptores (auth, contexto, etc.). */
-  delete<T>(path: string, options?: object): Promise<T> {
-    return firstValueFrom(this.http.delete<T>(this.toUrl(path), options));
+  /**
+   * DELETE con interceptores (auth, contexto, etc.).
+   * Usa `responseType: 'text'` para tolerar 204/cuerpo vacío sin fallar al parsear JSON.
+   */
+  async delete(path: string, options?: object): Promise<void> {
+    await firstValueFrom(
+      this.http.delete(this.toUrl(path), {
+        ...(options ?? {}),
+        responseType: 'text',
+        observe: 'response',
+      })
+    );
   }
 
   /** GET sin interceptores, útil para login/refresh/logout. */
@@ -55,9 +64,23 @@ export class HttpService {
     return firstValueFrom(this.rawHttp.patch<T>(this.toUrl(path), body, options));
   }
 
-  /** DELETE sin interceptores. */
-  deleteRaw<T>(path: string, options?: object): Promise<T> {
-    return firstValueFrom(this.rawHttp.delete<T>(this.toUrl(path), options));
+  /** DELETE sin interceptores. Tolera 204/cuerpo vacío. */
+  async deleteRaw(path: string, options?: object): Promise<void> {
+    await firstValueFrom(
+      this.rawHttp.delete(this.toUrl(path), {
+        ...(options ?? {}),
+        responseType: 'text',
+        observe: 'response',
+      })
+    );
+  }
+
+  /**
+   * DELETE con interceptores que espera JSON en la respuesta (p. ej. soft-delete que
+   * devuelve la entidad actualizada).
+   */
+  deleteJson<T>(path: string, options?: object): Promise<T> {
+    return firstValueFrom(this.http.delete<T>(this.toUrl(path), options));
   }
 
   /** Helper para endpoints que responden `T[]` o `{ items: T[] }`. */

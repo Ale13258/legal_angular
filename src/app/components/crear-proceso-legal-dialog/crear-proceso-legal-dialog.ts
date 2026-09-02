@@ -1,6 +1,10 @@
 import { Component, effect, input, output, signal } from '@angular/core';
 import { DataService } from '../../core/services/data.service';
-import type { Cuenta, EstadoCuenta, EtapaProceso, Propiedad, TipoCuenta } from '../../core/models';
+import type { ProcesoLegal, EstadoProcesoLegal, EtapaProceso, Cuenta, TipoProcesoLegal } from '../../core/models';
+import {
+  coerceEstadoProcesoLegal,
+  ESTADOS_PROCESO_LEGAL_UI,
+} from '../../core/proceso-estado';
 import {
   ETAPA_PROCESO_DEFAULT,
   ETAPAS_PROCESO_ORDENADAS,
@@ -8,7 +12,7 @@ import {
 } from '../../core/proceso-etapas';
 
 @Component({
-  selector: 'app-crear-cuenta-dialog',
+  selector: 'app-crear-proceso-legal-dialog',
   standalone: true,
   template: `
     <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -16,7 +20,7 @@ import {
       <div class="relative z-50 bg-card rounded-2xl shadow-lg border border-border w-full max-w-lg max-h-[90vh] overflow-y-auto">
         <div class="flex items-center justify-between px-6 py-4 border-b border-border sticky top-0 bg-card">
           <h2 class="font-display text-lg font-bold text-foreground">
-            {{ cuenta() ? 'Editar cuenta de cartera' : 'Nueva cuenta de cartera' }}
+            {{ cuenta() ? 'Editar radicado' : 'Nuevo radicado' }}
           </h2>
           <button
             type="button"
@@ -36,12 +40,12 @@ import {
           }
 
           <div>
-            <label class="block text-sm font-medium text-foreground mb-1.5">Número de cuenta</label>
+            <label class="block text-sm font-medium text-foreground mb-1.5">No. RADICADO</label>
             <input
               type="text"
-              [value]="numeroCuenta()"
-              (input)="numeroCuenta.set($any($event.target).value)"
-              placeholder="Ej: CTA-2026-001"
+              [value]="numeroProceso()"
+              (input)="numeroProceso.set($any($event.target).value)"
+              placeholder="Ej: 2026-001"
               class="w-full rounded-xl border border-input bg-background px-4 py-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary"
             />
           </div>
@@ -88,14 +92,14 @@ import {
 
           @if (!cuenta()) {
             <div>
-              <label class="block text-sm font-medium text-foreground mb-1.5">Propiedad (opcional)</label>
+              <label class="block text-sm font-medium text-foreground mb-1.5">Cuenta (opcional)</label>
               <select
-                [value]="propiedadId()"
-                (change)="propiedadId.set($any($event.target).value)"
+                [value]="cuentaId()"
+                (change)="cuentaId.set($any($event.target).value)"
                 class="w-full rounded-xl border border-input bg-background px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
               >
                 <option value="">Sin vincular</option>
-                @for (p of propiedades(); track p.id) {
+                @for (p of cuentas(); track p.id) {
                   <option [value]="p.id">{{ p.identificador }} — {{ p.direccion }}</option>
                 }
               </select>
@@ -119,7 +123,7 @@ import {
               @if (saving()) {
                 Guardando…
               } @else {
-                {{ cuenta() ? 'Guardar cambios' : 'Crear cuenta' }}
+                {{ cuenta() ? 'Guardar cambios' : 'Crear radicado' }}
               }
             </button>
           </div>
@@ -128,37 +132,33 @@ import {
     </div>
   `,
 })
-export class CrearCuentaDialog {
+export class CrearProcesoLegalDialog {
   open = input<boolean>(true);
   clienteId = input.required<string>();
-  propiedades = input<Propiedad[]>([]);
-  cuenta = input<Cuenta | null>(null);
+  cuentas = input<Cuenta[]>([]);
+  cuenta = input<ProcesoLegal | null>(null);
   /** Lo incrementa el padre en cada apertura para hidratar el formulario con los datos vigentes. */
   cuentaFormNonce = input(0);
   openChange = output<boolean>();
   created = output<void>();
 
-  numeroCuenta = signal('');
-  tipo = signal<TipoCuenta>('juridica');
-  estado = signal<EstadoCuenta>('activa');
+  numeroProceso = signal('');
+  tipo = signal<TipoProcesoLegal>('juridica');
+  estado = signal<EstadoProcesoLegal>('en_proceso');
   etapa = signal<EtapaProceso>(ETAPA_PROCESO_DEFAULT);
-  /** '' = sin propiedad */
-  propiedadId = signal('');
+  /** '' = sin cuenta */
+  cuentaId = signal('');
 
   saving = signal(false);
   errorMsg = signal<string | null>(null);
 
-  tipoOpciones: Array<{ value: TipoCuenta; label: string }> = [
+  tipoOpciones: Array<{ value: TipoProcesoLegal; label: string }> = [
     { value: 'juridica', label: 'JURÍDICO' },
     { value: 'extrajudicial', label: 'PRE-JURÍDICO' },
     { value: 'acuerdo_de_pago', label: 'ACUERDO DE PAGO' },
   ];
 
-  estadoOpciones: Array<{ value: EstadoCuenta; label: string }> = [
-    { value: 'activa', label: 'ACTIVA' },
-    { value: 'en_proceso', label: 'EN PROCESO' },
-    { value: 'cerrada', label: 'FINALIZADO' },
-  ];
+  estadoOpciones: Array<{ value: EstadoProcesoLegal; label: string }> = ESTADOS_PROCESO_LEGAL_UI;
 
   /** Catálogo de 13 etapas del proceso de radicación (fuente: proceso-etapas.ts). */
   readonly etapasProceso = ETAPAS_PROCESO_ORDENADAS;
@@ -179,30 +179,29 @@ export class CrearCuentaDialog {
       }
       this.lastSyncedFormKey = key;
       if (current) {
-        this.applyCuentaToForm(current);
+        this.applyProcesoLegalToForm(current);
       } else {
         this.reset();
       }
     });
   }
 
-  private applyCuentaToForm(c: Cuenta): void {
-    this.numeroCuenta.set(String(c.numero_cuenta ?? '').trim());
+  private applyProcesoLegalToForm(c: ProcesoLegal): void {
+    this.numeroProceso.set(String(c.numero_cuenta ?? '').trim());
     this.tipo.set(this.coerceTipo(c.tipo));
     this.estado.set(this.coerceEstado(c.estado));
     this.etapa.set(this.coerceEtapa(c.etapa_proceso));
-    const pid = c.propiedad_id;
-    this.propiedadId.set(pid != null && String(pid).trim() !== '' ? String(pid) : '');
+    const pid = c.cuenta_id;
+    this.cuentaId.set(pid != null && String(pid).trim() !== '' ? String(pid) : '');
   }
 
-  private coerceTipo(v: unknown): TipoCuenta {
-    const s = String(v ?? '').trim() as TipoCuenta;
+  private coerceTipo(v: unknown): TipoProcesoLegal {
+    const s = String(v ?? '').trim() as TipoProcesoLegal;
     return this.tipoOpciones.some((o) => o.value === s) ? s : 'juridica';
   }
 
-  private coerceEstado(v: unknown): EstadoCuenta {
-    const s = String(v ?? '').trim() as EstadoCuenta;
-    return this.estadoOpciones.some((o) => o.value === s) ? s : 'activa';
+  private coerceEstado(v: unknown): EstadoProcesoLegal {
+    return coerceEstadoProcesoLegal(v);
   }
 
   private coerceEtapa(v: unknown): EtapaProceso {
@@ -215,32 +214,32 @@ export class CrearCuentaDialog {
   }
 
   async guardar(): Promise<void> {
-    const num = this.numeroCuenta().trim();
+    const num = this.numeroProceso().trim();
     if (!num) {
-      this.errorMsg.set('Indica el número de cuenta.');
+      this.errorMsg.set('Indica el No. RADICADO.');
       return;
     }
     this.errorMsg.set(null);
     this.saving.set(true);
     try {
-      const pid = this.propiedadId().trim();
+      const pid = this.cuentaId().trim();
       const current = this.cuenta();
       if (current) {
-        await this.data.updateCuenta(current.id, {
+        await this.data.updateProcesoLegal(current.id, {
           numero_cuenta: num,
           tipo: this.tipo(),
           estado: this.estado(),
           etapa_proceso: this.etapa(),
-          ...(pid ? { propiedad_id: pid } : {}),
+          ...(pid ? { cuenta_id: pid } : {}),
         });
       } else {
-        await this.data.createCuenta({
+        await this.data.createProcesoLegal({
           cliente_id: this.clienteId(),
           numero_cuenta: num,
           tipo: this.tipo(),
           estado: this.estado(),
           etapa_proceso: this.etapa(),
-          ...(pid ? { propiedad_id: pid } : {}),
+          ...(pid ? { cuenta_id: pid } : {}),
         });
       }
       this.reset();
@@ -249,8 +248,8 @@ export class CrearCuentaDialog {
     } catch {
       this.errorMsg.set(
         this.cuenta()
-          ? 'No se pudo editar la cuenta. Revisa los datos o el servidor e intenta de nuevo.'
-          : 'No se pudo crear la cuenta. Revisa los datos o el servidor e intenta de nuevo.'
+          ? 'No se pudo editar el radicado. Revisa los datos o el servidor e intenta de nuevo.'
+          : 'No se pudo crear el radicado. Revisa los datos o el servidor e intenta de nuevo.'
       );
     } finally {
       this.saving.set(false);
@@ -258,11 +257,11 @@ export class CrearCuentaDialog {
   }
 
   private reset(): void {
-    this.numeroCuenta.set('');
+    this.numeroProceso.set('');
     this.tipo.set('juridica');
-    this.estado.set('activa');
+    this.estado.set('en_proceso');
     this.etapa.set(ETAPA_PROCESO_DEFAULT);
-    this.propiedadId.set('');
+    this.cuentaId.set('');
     this.errorMsg.set(null);
   }
 }

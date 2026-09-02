@@ -18,9 +18,9 @@ const ETIQUETAS: Record<EtapaCobranzaCodigo, string> = {
   persuasivo_31_60:
     'Cobros persuasivos, etapa pre-jurídica (31–60 días): llamadas, mensajes, correos de cobro',
   probable_juridico_61_90:
-    'Probabilidad de inicio de cobro jurídico (61–90 días): notificación formal por correo',
+    'Probabilidad de inicio de cobro jurídico (61–90 días): notificación de inicio de cobro jurídico por correo',
   juridico_mas_90:
-    'Etapa jurídica (más de 90 días): presentación de demanda; gestiones de cobro habituales',
+    'Etapa jurídica (más de 90 días): presentación de la demanda; gestiones de cobro habituales',
 };
 
 const ETIQUETAS_CORTAS: Record<EtapaCobranzaCodigo, string> = {
@@ -33,7 +33,7 @@ const ETIQUETAS_CORTAS: Record<EtapaCobranzaCodigo, string> = {
 };
 
 /**
- * @param dias Edad en mora en días (típicamente `Propiedad.edad_mora_dias` o equivalente).
+ * @param dias Edad en mora en días (típicamente `Cuenta.edad_mora_dias` o equivalente).
  */
 export function clasificarEtapaCobranza(dias: number | null | undefined): EtapaCobranzaCodigo {
   if (dias == null || !Number.isFinite(Number(dias))) return 'sin_dato';

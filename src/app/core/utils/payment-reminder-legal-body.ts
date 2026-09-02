@@ -10,98 +10,22 @@ export type LegalReminderBodyContext = {
 const P_STYLE =
   'margin:0 0 8px;font-size:14px;line-height:1.45;color:#333333;text-align:justify;font-family:Arial,Helvetica,sans-serif;';
 
-const STATIC_BOLD_PHRASES = [
-  'Ley 675 de 2001',
-  'inicio de las acciones legales',
-  'pronto pago',
-  'honorarios profesionales de abogado',
-  'cobro pre-jurídico',
-  'acuerdo de pago',
-  'inicio del cobro por vía judicial',
-  'cobro por vía judicial',
-  'honorarios por gestión',
-  '10%',
-];
-
 function montoLegalTexto(ctx: LegalReminderBodyContext): string {
   return `${montoEnLetrasPesos(ctx.montoPendiente)} (${formatMontoLegalColombiano(ctx.montoPendiente)})`;
-}
-
-/** Envuelve el valor a cobrar en ** para negrita, tolerando saltos de línea en el texto pegado. */
-function boldValorACobrarInPlainText(text: string, ctx: LegalReminderBodyContext): string {
-  if (text.includes('**') && text.includes('PESOS MONEDA CORRIENTE')) return text;
-
-  const monto = montoLegalTexto(ctx);
-  const flexibleMonto = monto
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-    .join('\\s+');
-  const exactRe = new RegExp(flexibleMonto, 'i');
-  if (exactRe.test(text)) {
-    return text.replace(exactRe, (match) => `**${match.replace(/\s+/g, ' ').trim()}**`);
-  }
-
-  const numero = formatMontoLegalColombiano(ctx.montoPendiente).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const bloqueRe = new RegExp(
-    `([A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑ\\s]*?PESOS\\s+MONEDA\\s+CORRIENTE\\s*\\(${numero}\\))`,
-    'i',
-  );
-  if (bloqueRe.test(text)) {
-    return text.replace(bloqueRe, (match) => `**${match.replace(/\s+/g, ' ').trim()}**`);
-  }
-
-  const entreMarcadores = /(corresponde a la suma de\s+)([\s\S]*?)(\s+más el)/i;
-  if (entreMarcadores.test(text)) {
-    return text.replace(entreMarcadores, (_full, ini, valor, fin) => {
-      const limpio = String(valor).replace(/\s+/g, ' ').trim();
-      return `${ini}**${limpio}**${fin}`;
-    });
-  }
-
-  return text;
 }
 
 function convertMarkdownBold(text: string): string {
   return text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
 }
 
-function wrapPhraseInStrong(html: string, phrase: string): string {
-  if (html.includes(`<strong>${phrase}</strong>`)) return html;
-  const escaped = phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return html.replace(new RegExp(escaped, 'gi'), (match) => {
-    return `<strong>${match}</strong>`;
-  });
-}
-
-function applyStaticLegalBolds(html: string): string {
-  let result = html;
-  for (const phrase of STATIC_BOLD_PHRASES) {
-    result = wrapPhraseInStrong(result, phrase);
-  }
-  return result;
-}
-
-function applyDynamicLegalBolds(html: string, ctx: LegalReminderBodyContext): string {
-  const unidad = `${ctx.tipoUnidad} ${ctx.identificador}`.trim();
-  let result = wrapPhraseInStrong(html, unidad);
-  result = wrapPhraseInStrong(result, ctx.copropiedad);
-  return result;
-}
-
-/** Aplica negritas legales y saltos de línea a un párrafo ya escapado para HTML. */
+/** Escapa HTML y respeta negritas manuales con **...**; sin resaltado automático. */
 export function formatLegalParagraphInnerHtml(
   plainParagraph: string,
   escapeHtml: (value: string) => string,
-  ctx?: LegalReminderBodyContext,
+  _ctx?: LegalReminderBodyContext,
 ): string {
-  let plain = plainParagraph;
-  if (ctx) plain = boldValorACobrarInPlainText(plain, ctx);
-  let inner = escapeHtml(plain).replaceAll('\n', '<br>');
-  inner = convertMarkdownBold(inner);
-  inner = applyStaticLegalBolds(inner);
-  if (ctx) inner = applyDynamicLegalBolds(inner, ctx);
-  return inner;
+  const inner = escapeHtml(plainParagraph).replaceAll('\n', '<br>');
+  return convertMarkdownBold(inner);
 }
 
 export function buildLegalReminderBodyPlain(ctx: LegalReminderBodyContext): string[] {

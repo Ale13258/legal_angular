@@ -1,13 +1,17 @@
 import { Component, computed, effect, input, output, signal } from '@angular/core';
 import { DataService } from '../../core/services/data.service';
-import type { Cliente, Propiedad } from '../../core/models';
+import type { Cliente, Cuenta } from '../../core/models';
 import { DeudorCell } from '../../shared/deudor-cell/deudor-cell';
 import * as XLSX from 'xlsx';
 import {
   buildClientReportResumenRows,
   downloadClientGeneralReportPdf,
-  resumenPropiedadPdfRow,
+  resumenCuentaPdfRow,
 } from '../../core/report-export/client-general-report-pdf';
+import {
+  buildUnidadGestionExportRows,
+  GESTION_EXPORT_HEADERS_CON_UNIDAD,
+} from '../../core/report-export/gestion-report';
 import {
   buildHeading,
   buildKeyValueLines,
@@ -79,9 +83,9 @@ import {
           </div>
 
           <div>
-            <h3 class="text-sm font-semibold text-foreground mb-2">Por propiedad (unidad)</h3>
+            <h3 class="text-sm font-semibold text-foreground mb-2">Por cuenta (unidad)</h3>
             <p class="text-xs text-muted-foreground mb-2">
-              Deudor actualizado por unidad. Pasa el cursor sobre Deudor para ver documento y correo.
+              Deudor actualizado por unidad. Pasa el cursor sobre Deudor para ver todos los deudores, documentos y correos.
             </p>
             <div class="overflow-x-auto rounded-xl border border-border">
               <table class="w-full min-w-[52rem] text-sm">
@@ -96,11 +100,11 @@ import {
                   </tr>
                 </thead>
                 <tbody>
-                  @for (row of resumenPorPropiedad(); track row.identificador) {
+                  @for (row of resumenPorCuenta(); track row.identificador) {
                     <tr class="border-b border-border/50">
                       <td class="px-3 py-2 font-medium align-top">{{ row.identificador }}</td>
                       <td class="deudor-col px-3 py-2 align-top max-w-[11rem]">
-                        <app-deudor-cell [propiedad]="row.propiedad" />
+                        <app-deudor-cell [cuenta]="row.cuenta" />
                       </td>
                       <td class="px-3 py-2 text-muted-foreground align-top whitespace-nowrap">
                         {{ row.documentoLabel }}
@@ -135,7 +139,7 @@ import {
               <table class="w-full text-sm">
                 <thead>
                   <tr class="border-b border-border bg-muted/30">
-                    <th class="text-left px-3 py-2 font-semibold text-muted-foreground">Propiedad</th>
+                    <th class="text-left px-3 py-2 font-semibold text-muted-foreground">Cuenta</th>
                     <th class="text-left px-3 py-2 font-semibold text-muted-foreground">Periodo</th>
                     <th class="text-left px-3 py-2 font-semibold text-muted-foreground">Concepto</th>
                     <th class="text-right px-3 py-2 font-semibold text-muted-foreground">Cobrado</th>
@@ -146,13 +150,49 @@ import {
                 <tbody>
                   @for (h of allData(); track h.id) {
                     <tr class="border-b border-border/50">
-                      <td class="px-3 py-2">{{ h.propiedad }}</td>
+                      <td class="px-3 py-2">{{ h.cuenta }}</td>
                       <td class="px-3 py-2 font-mono">{{ h.periodo }}</td>
                       <td class="px-3 py-2">{{ data.conceptoLabels[h.concepto] }}</td>
                       <td class="px-3 py-2 text-right tabular-nums">{{ data.formatCurrency(h.valor_cobrado) }}</td>
                       <td class="px-3 py-2 text-right tabular-nums">{{ data.formatCurrency(h.valor_pagado) }}</td>
                       <td class="px-3 py-2">{{ data.estadoPagoLabels[h.estado_pago] }}</td>
                     </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div>
+            <h3 class="text-sm font-semibold text-foreground mb-2">Trazabilidad de cobro por unidad</h3>
+            <div class="overflow-x-auto rounded-xl border border-border">
+              <table class="w-full text-sm">
+                <thead>
+                  <tr class="border-b border-border bg-muted/30">
+                    <th class="text-left px-3 py-2 font-semibold text-muted-foreground">Unidad</th>
+                    <th class="text-left px-3 py-2 font-semibold text-muted-foreground">Fecha</th>
+                    <th class="text-left px-3 py-2 font-semibold text-muted-foreground">Estado</th>
+                    <th class="text-left px-3 py-2 font-semibold text-muted-foreground">Tipo</th>
+                    <th class="text-left px-3 py-2 font-semibold text-muted-foreground">Descripción</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @if (gestionesPorUnidad().length === 0) {
+                    <tr>
+                      <td colspan="5" class="px-3 py-4 text-sm text-muted-foreground">
+                        No hay trazabilidad de cobro registrada en las unidades de este cliente.
+                      </td>
+                    </tr>
+                  } @else {
+                    @for (row of gestionesPorUnidad(); track $index) {
+                      <tr class="border-b border-border/50">
+                        <td class="px-3 py-2 font-medium">{{ row[0] }}</td>
+                        <td class="px-3 py-2 text-muted-foreground whitespace-nowrap">{{ row[1] }}</td>
+                        <td class="px-3 py-2">{{ row[2] }}</td>
+                        <td class="px-3 py-2">{{ row[3] }}</td>
+                        <td class="px-3 py-2">{{ row[4] }}</td>
+                      </tr>
+                    }
                   }
                 </tbody>
               </table>
@@ -204,7 +244,7 @@ import {
 export class ClientReportDialog {
   open = input<boolean>(true);
   cliente = input.required<Cliente>();
-  propiedades = input.required<Propiedad[]>();
+  cuentas = input.required<Cuenta[]>();
   openChange = output<boolean>();
 
   titulo = signal('');
@@ -217,25 +257,29 @@ export class ClientReportDialog {
   });
 
   allData = computed(() => {
-    const props = this.propiedades();
+    const props = this.cuentas();
     return props.flatMap((p) => {
-      const hist = this.data.getHistorialByPropiedad(p.id);
-      return hist.map((h) => ({ ...h, propiedad: p.identificador }));
+      const hist = this.data.getHistorialByCuenta(p.id);
+      return hist.map((h) => ({ ...h, cuenta: p.identificador }));
     });
   });
 
   totalCobrado = computed(() =>
-    this.propiedades().reduce((sum, p) => sum + this.data.getTotalCobradoParaPropiedad(p), 0)
+    this.cuentas().reduce((sum, p) => sum + this.data.getTotalCobradoParaCuenta(p), 0)
   );
   totalPagado = computed(() =>
-    this.propiedades().reduce((sum, p) => sum + this.data.getTotalPagadoParaPropiedad(p), 0),
+    this.cuentas().reduce((sum, p) => sum + this.data.getTotalPagadoParaCuenta(p), 0),
   );
   saldo = computed(() =>
-    this.propiedades().reduce((sum, p) => sum + this.data.getDeudaActualParaPropiedad(p), 0)
+    this.cuentas().reduce((sum, p) => sum + this.data.getDeudaActualParaCuenta(p), 0)
   );
 
-  resumenPorPropiedad = computed(() =>
-    buildClientReportResumenRows(this.data, this.propiedades()),
+  resumenPorCuenta = computed(() =>
+    buildClientReportResumenRows(this.data, this.cuentas()),
+  );
+
+  gestionesPorUnidad = computed(() =>
+    buildUnidadGestionExportRows(this.data, this.cuentas()),
   );
 
   /** Solo inicializa título/notas al abrir el informe, no en cada refresco de datos del cliente. */
@@ -253,6 +297,7 @@ export class ClientReportDialog {
       this.lastSyncedClienteKey = key;
       if (c.nombre) this.titulo.set(`Informe General – ${c.nombre}`);
       this.notasExtra.set('');
+      void this.data.loadGestionesForCuentas(this.cuentas());
     });
   }
 
@@ -260,7 +305,7 @@ export class ClientReportDialog {
     downloadClientGeneralReportPdf({
       data: this.data,
       cliente: this.cliente(),
-      propiedades: this.propiedades(),
+      cuentas: this.cuentas(),
       titulo: this.titulo(),
       notas: this.notasExtra(),
       fecha: this.fecha,
@@ -272,7 +317,8 @@ export class ClientReportDialog {
     const tituloDoc = this.titulo() || `Informe General – ${c.nombre}`;
     const allData = this.allData();
     const notas = this.notasExtra()?.trim();
-    const resumenRows = this.resumenPorPropiedad().map((row) => this.resumenPropiedadExportRow(row));
+    const resumenRows = this.resumenPorCuenta().map((row) => this.resumenCuentaExportRow(row));
+    const gestionRows = this.gestionesPorUnidad();
     const wsData: (string | number)[][] = [
       [tituloDoc],
       [`Fecha: ${this.fecha}`],
@@ -283,29 +329,35 @@ export class ClientReportDialog {
       ['Deuda a la fecha', this.data.formatCurrency(this.saldo())],
       ...(notas ? [[], ['Notas', notas], []] : []),
       [],
-      ['Por propiedad (unidad)'],
+      ['Por cuenta (unidad)'],
       ['Unidad', 'Deudor', 'Documento', 'Correo', 'Edad en mora', 'Deuda a la fecha'],
       ...resumenRows,
       [],
       ['Detalle de transacciones'],
       [],
-      ['Propiedad', 'Periodo', 'Concepto', 'Cobrado', 'Pagado', 'Estado'],
+      ['Cuenta', 'Periodo', 'Concepto', 'Cobrado', 'Pagado', 'Estado'],
       ...allData.map((h) => [
-        h.propiedad,
+        h.cuenta,
         h.periodo,
         this.data.conceptoLabels[h.concepto],
         h.valor_cobrado,
         h.valor_pagado,
         this.data.estadoPagoLabels[h.estado_pago],
       ]),
+      [],
+      ['Trazabilidad de cobro por unidad'],
+      [...GESTION_EXPORT_HEADERS_CON_UNIDAD],
+      ...(gestionRows.length
+        ? gestionRows
+        : [['No hay trazabilidad de cobro registrada en las unidades de este cliente.', '', '', '', '']]),
     ];
     const ws = XLSX.utils.aoa_to_sheet(wsData);
     (ws as unknown as { '!cols': { wch: number }[] })['!cols'] = [
       { wch: 20 },
-      { wch: 12 },
+      { wch: 16 },
       { wch: 18 },
       { wch: 16 },
-      { wch: 16 },
+      { wch: 40 },
       { wch: 12 },
     ];
     const wb = XLSX.utils.book_new();
@@ -321,7 +373,8 @@ export class ClientReportDialog {
     const tituloDoc = this.titulo() || `Informe General – ${c.nombre}`;
     const allData = this.allData();
     const notas = this.notasExtra()?.trim();
-    const resumen = this.resumenPorPropiedad();
+    const resumen = this.resumenPorCuenta();
+    const gestionRows = this.gestionesPorUnidad();
 
     const children = [
       buildHeading(tituloDoc),
@@ -336,17 +389,17 @@ export class ClientReportDialog {
       ...(notas
         ? [buildSubheading('Notas'), buildParagraph(notas), buildSpacer()]
         : [buildSpacer()]),
-      buildSubheading('Por propiedad (unidad)'),
+      buildSubheading('Por cuenta (unidad)'),
       buildTable(
         ['Unidad', 'Deudor', 'Documento', 'Correo', 'Edad en mora', 'Deuda a la fecha'],
-        resumen.map((row) => this.resumenPropiedadExportRow(row)),
+        resumen.map((row) => this.resumenCuentaExportRow(row)),
       ),
       buildSpacer(),
       buildSubheading('Detalle de transacciones'),
       buildTable(
-        ['Propiedad', 'Periodo', 'Concepto', 'Cobrado', 'Pagado', 'Estado'],
+        ['Cuenta', 'Periodo', 'Concepto', 'Cobrado', 'Pagado', 'Estado'],
         allData.map((h) => [
-          h.propiedad,
+          h.cuenta,
           h.periodo,
           this.data.conceptoLabels[h.concepto],
           this.data.formatCurrency(h.valor_cobrado),
@@ -354,13 +407,22 @@ export class ClientReportDialog {
           this.data.estadoPagoLabels[h.estado_pago],
         ])
       ),
+      buildSpacer(),
+      buildSubheading('Trazabilidad de cobro por unidad'),
+      ...(gestionRows.length
+        ? [buildTable([...GESTION_EXPORT_HEADERS_CON_UNIDAD], gestionRows)]
+        : [
+            buildParagraph(
+              'No hay trazabilidad de cobro registrada en las unidades de este cliente.',
+            ),
+          ]),
     ];
 
     await saveDocx(`informe_general_${c.nombre.replace(/\s/g, '_')}.docx`, children);
   }
 
-  private resumenPropiedadExportRow(row: ReturnType<typeof buildClientReportResumenRows>[number]): string[] {
-    return resumenPropiedadPdfRow(this.data, row);
+  private resumenCuentaExportRow(row: ReturnType<typeof buildClientReportResumenRows>[number]): string[] {
+    return resumenCuentaPdfRow(this.data, row);
   }
 
 }

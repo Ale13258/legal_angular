@@ -1,6 +1,6 @@
 import { Component, computed, effect, input, output, signal } from '@angular/core';
 import { DataService } from '../../core/services/data.service';
-import type { HistorialPago, Propiedad } from '../../core/models';
+import type { HistorialPago, Cuenta } from '../../core/models';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
@@ -13,6 +13,10 @@ import {
   buildTable,
   saveDocx,
 } from '../../core/report-export/report-docx';
+import {
+  buildGestionExportRows,
+  GESTION_EXPORT_HEADERS,
+} from '../../core/report-export/gestion-report';
 
 @Component({
   selector: 'app-report-preview-dialog',
@@ -54,7 +58,7 @@ import {
           <div class="text-sm text-muted-foreground space-y-1">
             <p><strong class="text-foreground">Fecha:</strong> {{ fecha }}</p>
             <p><strong class="text-foreground">Cliente:</strong> {{ clienteNombre() }}</p>
-            <p><strong class="text-foreground">Propiedad:</strong> {{ propiedad().identificador }} – {{ propiedad().direccion }}</p>
+            <p><strong class="text-foreground">Cuenta:</strong> {{ cuenta().identificador }} – {{ cuenta().direccion }}</p>
           </div>
 
         
@@ -80,7 +84,7 @@ import {
               <strong class="text-muted-foreground">Etapa de cobranza:</strong>
               {{ data.formatEtapaCobranza(resumenCobroUnidad().edad_mora_dias) }}
             </p>
-            <p><strong class="text-muted-foreground">Inicio del cobro (sistema):</strong> {{ data.formatFechaCorta(resumenCobroUnidad().fecha_inicio_cobro) }}</p>
+            <p><strong class="text-muted-foreground">Inicio del cobro:</strong> {{ data.formatFechaCorta(resumenCobroUnidad().fecha_inicio_cobro) }}</p>
             <p><strong class="text-muted-foreground">Fin del cobro:</strong> {{ data.formatFechaCorta(resumenCobroUnidad().fecha_fin_cobro) }}</p>
           </div>
 
@@ -111,6 +115,40 @@ import {
                       <td class="px-3 py-2 text-muted-foreground">{{ data.formatFechaPago(h) }}</td>
                       <td class="px-3 py-2 text-right tabular-nums">{{ data.formatDeuda(deudaHistorial(h)) }}</td>
                     </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div>
+            <h3 class="text-sm font-semibold text-foreground mb-2">Trazabilidad de cobro</h3>
+            <div class="overflow-x-auto rounded-xl border border-border">
+              <table class="w-full text-sm">
+                <thead>
+                  <tr class="border-b border-border bg-muted/30">
+                    <th class="text-left px-3 py-2 font-semibold text-muted-foreground">Fecha</th>
+                    <th class="text-left px-3 py-2 font-semibold text-muted-foreground">Estado</th>
+                    <th class="text-left px-3 py-2 font-semibold text-muted-foreground">Tipo</th>
+                    <th class="text-left px-3 py-2 font-semibold text-muted-foreground">Descripción</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @if (gestiones().length === 0) {
+                    <tr>
+                      <td colspan="4" class="px-3 py-4 text-sm text-muted-foreground">
+                        No hay trazabilidad de cobro registrada en esta unidad.
+                      </td>
+                    </tr>
+                  } @else {
+                    @for (g of gestiones(); track g.id) {
+                      <tr class="border-b border-border/50">
+                        <td class="px-3 py-2 text-muted-foreground whitespace-nowrap">{{ data.formatGestionFecha(g) }}</td>
+                        <td class="px-3 py-2">{{ data.formatGestionEstadoLabel(g) }}</td>
+                        <td class="px-3 py-2">{{ data.formatGestionTipo(g) }}</td>
+                        <td class="px-3 py-2">{{ data.getGestionDescripcion(g) || '—' }}</td>
+                      </tr>
+                    }
                   }
                 </tbody>
               </table>
@@ -163,7 +201,7 @@ import {
 })
 export class ReportPreviewDialog {
   open = input<boolean>(true);
-  propiedad = input.required<Propiedad>();
+  cuenta = input.required<Cuenta>();
   openChange = output<boolean>();
 
   titulo = signal('');
@@ -176,36 +214,40 @@ export class ReportPreviewDialog {
   });
 
   historial = computed(() =>
-    this.data.getHistorialByPropiedad(this.propiedad().id)
+    this.data.getHistorialByCuenta(this.cuenta().id)
   );
+  gestiones = computed(() => this.data.getGestionesByCuenta(this.cuenta().id));
   clienteNombre = computed(() => {
-    const cl = this.data.getClienteById(this.propiedad().cliente_id);
+    const cl = this.data.getClienteById(this.cuenta().cliente_id);
     return cl?.nombre ?? '';
   });
-  totalCobrado = computed(() => this.data.getTotalCobradoParaPropiedad(this.propiedad()));
+  totalCobrado = computed(() => this.data.getTotalCobradoParaCuenta(this.cuenta()));
   totalPagado = computed(() =>
     this.historial().reduce((s, h) => s + this.toNumber(h.valor_pagado), 0)
   );
-  saldo = computed(() => this.data.getDeudaActualParaPropiedad(this.propiedad()));
+  saldo = computed(() => this.data.getDeudaActualParaCuenta(this.cuenta()));
 
-  resumenCobroUnidad = computed(() => this.data.getResumenMoraCobroParaPropiedad(this.propiedad()));
+  resumenCobroUnidad = computed(() => this.data.getResumenMoraCobroParaCuenta(this.cuenta()));
 
-  private lastSyncedPropiedadKey: string | null = null;
+  private lastSyncedCuentaKey: string | null = null;
 
   constructor(protected data: DataService) {
     effect(() => {
       if (!this.open()) {
-        this.lastSyncedPropiedadKey = null;
+        this.lastSyncedCuentaKey = null;
         return;
       }
-      const p = this.propiedad();
+      const p = this.cuenta();
       const key = p.id;
-      if (this.lastSyncedPropiedadKey === key) return;
-      this.lastSyncedPropiedadKey = key;
+      if (this.lastSyncedCuentaKey === key) return;
+      this.lastSyncedCuentaKey = key;
 
       if (p.identificador) this.titulo.set(`Informe de Cartera - ${p.identificador}`);
-      // Desde la ficha del cliente no se precarga el historial; sin esto el informe solo refleja deuda y la tabla queda vacía.
-      void this.data.loadHistorialByPropiedad(p.id);
+      // Desde la ficha del cliente no se precarga el historial ni las gestiones.
+      void Promise.all([
+        this.data.loadHistorialByCuenta(p.id),
+        this.data.loadGestionesByCuenta(p.id),
+      ]);
     });
   }
 
@@ -215,11 +257,11 @@ export class ReportPreviewDialog {
   }
 
   deudaHistorial(h: HistorialPago): number {
-    return this.data.getDeudaParaHistorialPago(this.propiedad(), h);
+    return this.data.getDeudaParaHistorialPago(this.cuenta(), h);
   }
 
   downloadPdf(): void {
-    const p = this.propiedad();
+    const p = this.cuenta();
     const tituloDoc = this.titulo() || `Informe de Cartera — ${p.identificador}`;
     const doc = new jsPDF();
     doc.setFontSize(16);
@@ -227,7 +269,7 @@ export class ReportPreviewDialog {
     doc.setFontSize(10);
     doc.text(`Fecha: ${this.fecha}`, 14, 28);
     doc.text(`Cliente: ${this.clienteNombre()}`, 14, 34);
-    doc.text(`Propiedad: ${p.identificador} — ${p.direccion}`, 14, 40);
+    doc.text(`Cuenta: ${p.identificador} — ${p.direccion}`, 14, 40);
     doc.setFontSize(11);
     doc.text('Resumen Financiero', 14, 52);
     doc.setFontSize(10);
@@ -257,7 +299,7 @@ export class ReportPreviewDialog {
     );
     doc.text(etapaLines, 14, 90);
     let yAfterEtapa = 90 + etapaLines.length * 5;
-    doc.text(`Inicio del cobro (sistema): ${this.data.formatFechaCorta(rc.fecha_inicio_cobro)}`, 14, yAfterEtapa);
+    doc.text(`Inicio del cobro: ${this.data.formatFechaCorta(rc.fecha_inicio_cobro)}`, 14, yAfterEtapa);
     yAfterEtapa += 6;
     doc.text(`Fin del cobro: ${this.data.formatFechaCorta(rc.fecha_fin_cobro)}`, 14, yAfterEtapa);
     const notas = this.notasExtra()?.trim();
@@ -296,19 +338,38 @@ export class ReportPreviewDialog {
       styles: { fontSize: 8 },
       headStyles: { fillColor: [107, 60, 200] },
     });
+    const docLt = doc as unknown as { lastAutoTable?: { finalY: number } };
+    let yGestiones = (docLt.lastAutoTable?.finalY ?? startY) + 10;
+    doc.setFontSize(11);
+    doc.text('Trazabilidad de cobro', 14, yGestiones);
+    const gestionRows = buildGestionExportRows(this.data, p.id);
+    if (gestionRows.length === 0) {
+      doc.setFontSize(10);
+      doc.text('No hay trazabilidad de cobro registrada en esta unidad.', 14, yGestiones + 6);
+    } else {
+      autoTable(doc, {
+        startY: yGestiones + 4,
+        head: [[...GESTION_EXPORT_HEADERS]],
+        body: gestionRows,
+        styles: { fontSize: 8, overflow: 'linebreak' },
+        columnStyles: { 3: { cellWidth: 80 } },
+        headStyles: { fillColor: [107, 60, 200] },
+      });
+    }
     doc.save(`informe_${p.identificador.replace(/\s/g, '_')}.pdf`);
   }
 
   downloadExcel(): void {
-    const p = this.propiedad();
+    const p = this.cuenta();
     const tituloDoc = this.titulo() || `Informe de Cartera — ${p.identificador}`;
     const historial = this.historial();
     const notas = this.notasExtra()?.trim();
+    const gestionRows = buildGestionExportRows(this.data, p.id);
     const wsData: (string | number)[][] = [
       [tituloDoc],
       [`Fecha: ${this.fecha}`],
       [`Cliente: ${this.clienteNombre()}`],
-      [`Propiedad: ${p.identificador} — ${p.direccion}`],
+      [`Cuenta: ${p.identificador} — ${p.direccion}`],
       [],
       ['Total Cobrado', this.data.formatCurrency(this.totalCobrado())],
       ['Total Pagado', this.data.formatCurrency(this.totalPagado())],
@@ -321,7 +382,7 @@ export class ReportPreviewDialog {
       ],
       ['Etapa de cobranza', this.data.formatEtapaCobranza(this.resumenCobroUnidad().edad_mora_dias)],
       [
-        'Inicio del cobro (sistema)',
+        'Inicio del cobro',
         this.data.formatFechaCorta(this.resumenCobroUnidad().fecha_inicio_cobro),
       ],
       ['Fin del cobro', this.data.formatFechaCorta(this.resumenCobroUnidad().fecha_fin_cobro)],
@@ -345,6 +406,12 @@ export class ReportPreviewDialog {
         this.data.formatFechaPago(h),
         this.data.getDeudaParaHistorialPago(p, h),
       ]),
+      [],
+      ['Trazabilidad de cobro'],
+      [...GESTION_EXPORT_HEADERS],
+      ...(gestionRows.length
+        ? gestionRows
+        : [['No hay trazabilidad de cobro registrada en esta unidad.', '', '', '']]),
     ];
     const ws = XLSX.utils.aoa_to_sheet(wsData);
     (ws as unknown as { '!cols': { wch: number }[] })['!cols'] = [
@@ -362,17 +429,18 @@ export class ReportPreviewDialog {
   }
 
   async downloadWord(): Promise<void> {
-    const p = this.propiedad();
+    const p = this.cuenta();
     const tituloDoc = this.titulo() || `Informe de Cartera — ${p.identificador}`;
     const historial = this.historial();
     const notas = this.notasExtra()?.trim();
     const rc = this.resumenCobroUnidad();
+    const gestionRows = buildGestionExportRows(this.data, p.id);
 
     const children = [
       buildHeading(tituloDoc),
       buildParagraph(`Fecha: ${this.fecha}`),
       buildParagraph(`Cliente: ${this.clienteNombre()}`),
-      buildParagraph(`Propiedad: ${p.identificador} — ${p.direccion}`),
+      buildParagraph(`Cuenta: ${p.identificador} — ${p.direccion}`),
       buildSubheading('Resumen Financiero'),
       ...buildKeyValueLines([
         ['Total Cobrado', this.data.formatCurrency(this.totalCobrado())],
@@ -383,7 +451,7 @@ export class ReportPreviewDialog {
       ...buildKeyValueLines([
         ['Edad en mora', this.data.formatDiasMora(rc.edad_mora_dias)],
         ['Etapa de cobranza', this.data.formatEtapaCobranza(rc.edad_mora_dias)],
-        ['Inicio del cobro (sistema)', this.data.formatFechaCorta(rc.fecha_inicio_cobro)],
+        ['Inicio del cobro', this.data.formatFechaCorta(rc.fecha_inicio_cobro)],
         ['Fin del cobro', this.data.formatFechaCorta(rc.fecha_fin_cobro)],
       ]),
       ...(notas
@@ -409,6 +477,11 @@ export class ReportPreviewDialog {
           this.data.formatDeuda(this.data.getDeudaParaHistorialPago(p, h)),
         ])
       ),
+      buildSpacer(),
+      buildSubheading('Trazabilidad de cobro'),
+      ...(gestionRows.length
+        ? [buildTable([...GESTION_EXPORT_HEADERS], gestionRows)]
+        : [buildParagraph('No hay trazabilidad de cobro registrada en esta unidad.')]),
     ];
 
     await saveDocx(`informe_${p.identificador.replace(/\s/g, '_')}.docx`, children);

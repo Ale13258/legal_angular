@@ -2,7 +2,7 @@ import { Component, computed, inject, signal } from '@angular/core';
 import { BaseChartDirective } from 'ng2-charts';
 import type { ChartConfiguration } from 'chart.js';
 import { downloadClientGeneralReportPdf } from '../../core/report-export/client-general-report-pdf';
-import type { Propiedad } from '../../core/models';
+import type { Cuenta } from '../../core/models';
 import { AuthService } from '../../core/services/auth.service';
 import { DataService } from '../../core/services/data.service';
 import { BalanceCard } from '../../shared/balance-card/balance-card';
@@ -76,9 +76,9 @@ import { fadeInUp, fadeInUpStagger } from '../../core/animations/animations';
 
           <div class="bg-card rounded-2xl shadow-card border border-border/50 p-4 sm:p-6 min-w-0">
             <h2 class="font-display font-semibold text-lg text-foreground mb-4">Deuda por propiedad</h2>
-            @if (propiedades().length > 0) {
+            @if (cuentas().length > 0) {
               <div class="h-[260px]">
-                <canvas baseChart [data]="barDeudaPropiedadData()" [options]="barDeudaOptions" type="bar"></canvas>
+                <canvas baseChart [data]="barDeudaCuentaData()" [options]="barDeudaOptions" type="bar"></canvas>
               </div>
             } @else {
               <div class="h-[260px] rounded-xl bg-muted/30 flex items-center justify-center text-sm text-muted-foreground">
@@ -110,12 +110,12 @@ import { fadeInUp, fadeInUpStagger } from '../../core/animations/animations';
                   </tr>
                 </thead>
                 <tbody>
-                  @for (p of propiedades(); track p.id; let i = $index) {
+                  @for (p of cuentas(); track p.id; let i = $index) {
                     <tr [@fadeInUpStagger]="stagger(i)" class="border-b border-border/50">
                       <td class="px-4 sm:px-6 py-3">
                         <app-status-badge
-                          [label]="data.tipoPropiedadLabels[p.tipo_propiedad]"
-                          [variant]="p.tipo_propiedad"
+                          [label]="data.tipoCuentaLabels[p.tipo_cuenta]"
+                          [variant]="p.tipo_cuenta"
                         />
                       </td>
                       <td class="px-4 sm:px-6 py-3 font-medium">{{ p.identificador }}</td>
@@ -132,48 +132,48 @@ import { fadeInUp, fadeInUpStagger } from '../../core/animations/animations';
                         </div>
                       </td>
                       <td class="px-4 sm:px-6 py-3 text-right font-mono text-sm">
-                        {{ data.formatCurrency(data.getTotalCobradoParaPropiedad(p)) }}
+                        {{ data.formatCurrency(data.getTotalCobradoParaCuenta(p)) }}
                       </td>
                       <td class="px-4 sm:px-6 py-3 text-right font-mono text-sm font-semibold text-foreground">
-                        {{ data.formatDeuda(data.getDeudaActualParaPropiedad(p)) }}
+                        {{ data.formatDeuda(data.getDeudaActualParaCuenta(p)) }}
                       </td>
                     </tr>
                   }
                 </tbody>
               </table>
             </div>
-            @if (propiedades().length === 0) {
+            @if (cuentas().length === 0) {
               <p class="text-center py-8 text-muted-foreground text-sm">No hay propiedades registradas.</p>
             }
           </div>
         </section>
 
         <section class="mb-10">
-          <h2 class="font-display font-semibold text-lg text-foreground mb-4">Cuentas</h2>
+          <h2 class="font-display font-semibold text-lg text-foreground mb-4">No. RADICADO</h2>
           <div class="bg-card rounded-2xl shadow-card border border-border/50 overflow-hidden">
             <div class="table-wrap overflow-x-auto">
               <table class="w-full min-w-[480px]">
                 <thead>
                   <tr class="border-b border-border">
-                    <th class="text-left px-4 sm:px-6 py-3 text-xs font-semibold text-muted-foreground uppercase">Nº cuenta</th>
+                    <th class="text-left px-4 sm:px-6 py-3 text-xs font-semibold text-muted-foreground uppercase">No. RADICADO</th>
                     <th class="text-left px-4 sm:px-6 py-3 text-xs font-semibold text-muted-foreground uppercase">Tipo</th>
                     <th class="text-left px-4 sm:px-6 py-3 text-xs font-semibold text-muted-foreground uppercase">Estado</th>
                     <th class="text-left px-4 sm:px-6 py-3 text-xs font-semibold text-muted-foreground uppercase">Etapa</th>
                   </tr>
                 </thead>
                 <tbody>
-                  @for (cu of cuentas(); track cu.id; let i = $index) {
+                  @for (cu of procesosLegales(); track cu.id; let i = $index) {
                     <tr [@fadeInUpStagger]="stagger(i + 20)" class="border-b border-border/50">
                       <td class="px-4 sm:px-6 py-3 font-mono text-sm">{{ cu.numero_cuenta }}</td>
                       <td class="px-4 sm:px-6 py-3">
                         <app-status-badge
-                          [label]="data.tipoCuentaLabels[cu.tipo]"
+                          [label]="data.tipoProcesoLegalLabels[cu.tipo]"
                           [variant]="cu.tipo === 'juridica' ? 'juridica' : cu.tipo === 'extrajudicial' ? 'pendiente' : 'parcial'"
                         />
                       </td>
                       <td class="px-4 sm:px-6 py-3">
                         <app-status-badge
-                          [label]="data.estadoCuentaLabels[cu.estado]"
+                          [label]="data.estadoProcesoLegalLabels[cu.estado]"
                           [variant]="cu.estado === 'activa' ? 'activa' : cu.estado === 'cerrada' ? 'cerrada' : 'en_proceso'"
                         />
                       </td>
@@ -185,8 +185,8 @@ import { fadeInUp, fadeInUpStagger } from '../../core/animations/animations';
                 </tbody>
               </table>
             </div>
-            @if (cuentas().length === 0) {
-              <p class="text-center py-8 text-muted-foreground text-sm">No hay cuentas asociadas.</p>
+            @if (procesosLegales().length === 0) {
+              <p class="text-center py-8 text-muted-foreground text-sm">No hay radicados asociados.</p>
             }
           </div>
         </section>
@@ -198,7 +198,7 @@ import { fadeInUp, fadeInUpStagger } from '../../core/animations/animations';
               <table class="w-full min-w-[720px]">
                 <thead>
                   <tr class="border-b border-border">
-                    <th class="text-left px-4 sm:px-6 py-3 text-xs font-semibold text-muted-foreground uppercase">Propiedad</th>
+                    <th class="text-left px-4 sm:px-6 py-3 text-xs font-semibold text-muted-foreground uppercase">Cuenta</th>
                     <th class="text-left px-4 sm:px-6 py-3 text-xs font-semibold text-muted-foreground uppercase">Periodo</th>
                     <th class="text-left px-4 sm:px-6 py-3 text-xs font-semibold text-muted-foreground uppercase">Concepto</th>
                     <th class="text-right px-4 sm:px-6 py-3 text-xs font-semibold text-muted-foreground uppercase">Cobrado</th>
@@ -207,9 +207,9 @@ import { fadeInUp, fadeInUpStagger } from '../../core/animations/animations';
                   </tr>
                 </thead>
                 <tbody>
-                  @for (h of historialConPropiedad(); track h.id; let i = $index) {
+                  @for (h of historialConCuenta(); track h.id; let i = $index) {
                     <tr [@fadeInUpStagger]="stagger(i + 40)" class="border-b border-border/50">
-                      <td class="px-4 sm:px-6 py-3 text-sm">{{ h.propiedad }}</td>
+                      <td class="px-4 sm:px-6 py-3 text-sm">{{ h.cuenta }}</td>
                       <td class="px-4 sm:px-6 py-3 font-mono text-sm">{{ h.periodo }}</td>
                       <td class="px-4 sm:px-6 py-3 text-sm">{{ data.conceptoLabels[h.concepto] }}</td>
                       <td class="px-4 sm:px-6 py-3 text-right text-sm">{{ data.formatCurrency(h.valor_cobrado) }}</td>
@@ -225,7 +225,7 @@ import { fadeInUp, fadeInUpStagger } from '../../core/animations/animations';
                 </tbody>
               </table>
             </div>
-            @if (historialConPropiedad().length === 0) {
+            @if (historialConCuenta().length === 0) {
               <p class="text-center py-8 text-muted-foreground text-sm">No hay movimientos registrados.</p>
             }
           </div>
@@ -299,44 +299,44 @@ export class ClientePortalPage {
     return this.data.getClienteById(id) ?? null;
   });
 
-  readonly propiedades = computed(() => {
-    const id = this.clienteId();
-    if (!id) return [];
-    return this.data.getPropiedadesByCliente(id);
-  });
-
   readonly cuentas = computed(() => {
     const id = this.clienteId();
     if (!id) return [];
     return this.data.getCuentasByCliente(id);
   });
 
+  readonly procesosLegales = computed(() => {
+    const id = this.clienteId();
+    if (!id) return [];
+    return this.data.getProcesosLegalesByCliente(id);
+  });
+
   readonly totalCobrado = computed(() =>
-    this.propiedades().reduce((sum, p) => sum + this.data.getTotalCobradoParaPropiedad(p), 0),
+    this.cuentas().reduce((sum, p) => sum + this.data.getTotalCobradoParaCuenta(p), 0),
   );
 
   readonly totalPagado = computed(() =>
-    this.propiedades().reduce((sum, p) => sum + this.data.getTotalPagadoParaPropiedad(p), 0),
+    this.cuentas().reduce((sum, p) => sum + this.data.getTotalPagadoParaCuenta(p), 0),
   );
 
   readonly totalDeuda = computed(() =>
-    this.propiedades().reduce((sum, p) => sum + this.data.getDeudaActualParaPropiedad(p), 0),
+    this.cuentas().reduce((sum, p) => sum + this.data.getDeudaActualParaCuenta(p), 0),
   );
 
-  readonly historialConPropiedad = computed(() => {
-    const props = this.propiedades();
+  readonly historialConCuenta = computed(() => {
+    const props = this.cuentas();
     return props
       .flatMap((p) => {
-        const hist = this.data.getHistorialByPropiedad(p.id);
-        return hist.map((h) => ({ ...h, propiedad: p.identificador }));
+        const hist = this.data.getHistorialByCuenta(p.id);
+        return hist.map((h) => ({ ...h, cuenta: p.identificador }));
       })
       .sort((a, b) => b.periodo.localeCompare(a.periodo) || b.created_at.localeCompare(a.created_at));
   });
 
-  readonly hasHistorialChart = computed(() => this.historialConPropiedad().length > 0);
+  readonly hasHistorialChart = computed(() => this.historialConCuenta().length > 0);
 
   readonly barCobradoPagadoData = computed((): ChartConfiguration<'bar'>['data'] => {
-    const hist = this.historialConPropiedad();
+    const hist = this.historialConCuenta();
     const periodos = [...new Set(hist.map((h) => h.periodo))].sort();
     return {
       labels: periodos,
@@ -363,14 +363,14 @@ export class ClientePortalPage {
     };
   });
 
-  readonly barDeudaPropiedadData = computed((): ChartConfiguration<'bar'>['data'] => {
-    const props = this.propiedades();
+  readonly barDeudaCuentaData = computed((): ChartConfiguration<'bar'>['data'] => {
+    const props = this.cuentas();
     return {
       labels: props.map((p) => p.identificador),
       datasets: [
         {
           label: 'Deuda',
-          data: props.map((p) => this.data.getDeudaActualParaPropiedad(p)),
+          data: props.map((p) => this.data.getDeudaActualParaCuenta(p)),
           backgroundColor: '#6b3cc8',
         },
       ],
@@ -387,7 +387,7 @@ export class ClientePortalPage {
     downloadClientGeneralReportPdf({
       data: this.data,
       cliente: c,
-      propiedades: this.propiedades(),
+      cuentas: this.cuentas(),
       titulo: `Informe General – ${c.nombre}`,
       fecha: this.fechaInforme,
     });
@@ -403,13 +403,16 @@ export class ClientePortalPage {
       return;
     }
     try {
-      const [, propiedades] = await Promise.all([
+      const [, cuentas] = await Promise.all([
         this.data.loadCliente(id),
-        this.data.loadPropiedadesByCliente(id),
         this.data.loadCuentasByCliente(id),
+        this.data.loadProcesosLegalesByCliente(id),
       ]);
-      const propiedadesDetalle = await this.data.loadPropiedadDetallesForPropiedades(propiedades);
-      await this.data.loadHistorialesForPropiedades(propiedadesDetalle);
+      const propiedadesDetalle = await this.data.loadCuentaDetallesForCuentas(cuentas);
+      await Promise.all([
+        this.data.loadHistorialesForCuentas(propiedadesDetalle),
+        this.data.loadGestionesForCuentas(propiedadesDetalle),
+      ]);
     } catch {
       this.error.set('No se pudo cargar la información del portal.');
     } finally {
@@ -417,8 +420,8 @@ export class ClientePortalPage {
     }
   }
 
-  protected resumenCobro(p: Propiedad) {
-    return this.data.getResumenMoraCobroParaPropiedad(p);
+  protected resumenCobro(p: Cuenta) {
+    return this.data.getResumenMoraCobroParaCuenta(p);
   }
 
   private toMoney(value: unknown): number {

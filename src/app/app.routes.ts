@@ -3,6 +3,7 @@ import { adminGuard } from './core/guards/admin.guard';
 import { authGuard } from './core/guards/auth.guard';
 import { clienteGuard } from './core/guards/cliente.guard';
 import { guestGuard } from './core/guards/guest.guard';
+import { superAdminGuard } from './core/guards/super-admin.guard';
 
 export const routes: Routes = [
   { path: '', loadComponent: () => import('./pages/welcome-page/welcome-page').then((m) => m.WelcomePage) },
@@ -34,6 +35,12 @@ export const routes: Routes = [
           import('./pages/dashboard-page/dashboard-page').then((m) => m.DashboardPage),
       },
       {
+        path: 'usuarios',
+        canActivate: [superAdminGuard],
+        loadComponent: () =>
+          import('./pages/usuarios-page/usuarios-page').then((m) => m.UsuariosPage),
+      },
+      {
         path: 'clientes/nuevo',
         canActivate: [adminGuard],
         loadComponent: () =>
@@ -49,16 +56,18 @@ export const routes: Routes = [
         path: 'propiedades',
         canActivate: [adminGuard],
         loadComponent: () =>
-          import('./pages/propiedades-page/propiedades-page').then((m) => m.PropiedadesPage),
+          import('./pages/cuentas-page/cuentas-page').then((m) => m.CuentasPage),
       },
       {
         path: 'propiedades/:id',
         canActivate: [adminGuard],
         loadComponent: () =>
-          import('./pages/propiedad-detail-page/propiedad-detail-page').then(
-            (m) => m.PropiedadDetailPage
+          import('./pages/cuenta-detail-page/cuenta-detail-page').then(
+            (m) => m.CuentaDetailPage
           ),
       },
+      { path: 'cuentas', redirectTo: 'propiedades', pathMatch: 'full' },
+      { path: 'cuentas/:id', redirectTo: 'propiedades/:id' },
       {
         path: 'graficos',
         canActivate: [adminGuard],

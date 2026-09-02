@@ -1,13 +1,15 @@
 import { Component, computed, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
-import type { Propiedad } from '../../core/models';
+import type { Cliente, Cuenta } from '../../core/models';
 import { DataService } from '../../core/services/data.service';
 import { DeudorCell } from '../../shared/deudor-cell/deudor-cell';
 import { StatusBadge } from '../../shared/status-badge/status-badge';
 import { fadeInUp, fadeInUpStagger } from '../../core/animations/animations';
 
+type CuentaConCliente = Cuenta & { cliente?: Cliente };
+
 @Component({
-  selector: 'app-propiedades-page',
+  selector: 'app-cuentas-page',
   standalone: true,
   imports: [RouterLink, DeudorCell, StatusBadge],
   animations: [fadeInUp, fadeInUpStagger],
@@ -21,7 +23,7 @@ import { fadeInUp, fadeInUpStagger } from '../../core/animations/animations';
             <h1 class="font-display text-3xl md:text-4xl font-bold text-primary-foreground mb-2">
               Propiedades
             </h1>
-            <p class="text-primary-foreground/70 mb-6">Listado general de todas las propiedades</p>
+              <p class="text-primary-foreground/70 mb-6">Propiedades agrupadas por cliente</p>
           </div>
         </div>
       </div>
@@ -155,58 +157,75 @@ import { fadeInUp, fadeInUpStagger } from '../../core/animations/animations';
                 </tr>
               </thead>
               <tbody>
-                @for (prop of filtered(); track prop.id; let i = $index) {
-                  <tr
-                    [@fadeInUpStagger]="{ value: '', params: { delay: i * 50, duration: 200, offset: 5, ease: 'ease-out' } }"
-                    class="border-b border-border/40 last:border-0 hover:bg-muted/30 transition-colors cursor-pointer"
-                    (click)="navigateToPropiedad(prop.id)"
-                  >
-                    <td class="px-5 sm:px-6 py-4 text-sm font-medium text-foreground">{{ prop.identificador }}</td>
-                    <td class="px-5 sm:px-6 py-4 text-sm text-muted-foreground">{{ prop.direccion }}</td>
-                    <td class="px-5 sm:px-6 py-4 text-sm text-muted-foreground">{{ prop.cliente?.nombre }}</td>
-                    <td class="deudor-col px-5 sm:px-6 py-4 text-sm max-w-[12rem]" (click)="$event.stopPropagation()">
-                      <app-deudor-cell [propiedad]="prop" />
-                    </td>
-                    <td class="px-5 sm:px-6 py-4">
-                      <app-status-badge
-                        [label]="data.tipoPropiedadLabels[prop.tipo_propiedad]"
-                        [variant]="prop.tipo_propiedad"
-                      />
-                    </td>
-                    <td
-                      class="px-5 sm:px-6 py-4 text-right text-sm align-top max-w-[13rem]"
-                      [title]="data.formatResumenMoraTooltip(resumenCobro(prop))"
-                    >
-                      <div class="font-medium tabular-nums text-foreground">
-                        {{ data.formatDiasMora(resumenCobro(prop).edad_mora_dias) }}
+                @for (group of grouped(); track group.clienteId; let gi = $index) {
+                  <tr class="border-b border-border/60 bg-muted/30">
+                    <td colspan="8" class="px-5 sm:px-6 py-2.5">
+                      <div class="flex flex-wrap items-center justify-between gap-2">
+                        <a
+                          [routerLink]="['/clientes', group.clienteId]"
+                          class="font-medium text-sm text-foreground hover:text-primary"
+                        >
+                          {{ group.clienteNombre }}
+                        </a>
+                        <span class="text-xs text-muted-foreground">
+                          {{ group.cuentas.length === 1 ? '1 propiedad' : group.cuentas.length + ' propiedades' }}
+                        </span>
                       </div>
-                      <div class="text-xs text-muted-foreground mt-1 leading-snug line-clamp-2">
-                        {{ data.formatEtapaCobranzaCorta(resumenCobro(prop).edad_mora_dias) }}
-                      </div>
-                    </td>
-                    <td class="px-5 sm:px-6 py-4 text-right text-sm font-semibold tabular-nums text-foreground">
-                      {{ data.formatDeuda(data.getDeudaActualParaPropiedad(prop)) }}
-                    </td>
-                    <td class="px-5 sm:px-6 py-4 text-right">
-                      <a
-                        [routerLink]="['/propiedades', prop.id]"
-                        (click)="$event.stopPropagation()"
-                        class="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-border text-muted-foreground hover:bg-muted hover:text-primary transition-colors"
-                        title="Ver detalle"
-                        aria-label="Ver detalle"
-                      >
-                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                          <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
-                          <circle cx="12" cy="12" r="3" />
-                        </svg>
-                      </a>
                     </td>
                   </tr>
+                  @for (prop of group.cuentas; track prop.id; let i = $index) {
+                    <tr
+                      [@fadeInUpStagger]="{ value: '', params: { delay: (gi * 40) + (i * 30), duration: 200, offset: 5, ease: 'ease-out' } }"
+                      class="border-b border-border/40 last:border-0 hover:bg-muted/30 transition-colors cursor-pointer"
+                      (click)="navigateToCuenta(prop.id)"
+                    >
+                      <td class="px-5 sm:px-6 py-4 text-sm font-medium text-foreground pl-8 sm:pl-10">{{ prop.identificador }}</td>
+                      <td class="px-5 sm:px-6 py-4 text-sm text-muted-foreground">{{ prop.direccion }}</td>
+                      <td class="px-5 sm:px-6 py-4 text-sm text-muted-foreground">{{ prop.cliente?.nombre }}</td>
+                      <td class="deudor-col px-5 sm:px-6 py-4 text-sm max-w-[12rem]" (click)="$event.stopPropagation()">
+                        <app-deudor-cell [cuenta]="prop" />
+                      </td>
+                      <td class="px-5 sm:px-6 py-4">
+                        <app-status-badge
+                          [label]="data.tipoCuentaLabels[prop.tipo_cuenta]"
+                          [variant]="prop.tipo_cuenta"
+                        />
+                      </td>
+                      <td
+                        class="px-5 sm:px-6 py-4 text-right text-sm align-top max-w-[13rem]"
+                        [title]="data.formatResumenMoraTooltip(resumenCobro(prop))"
+                      >
+                        <div class="font-medium tabular-nums text-foreground">
+                          {{ data.formatDiasMora(resumenCobro(prop).edad_mora_dias) }}
+                        </div>
+                        <div class="text-xs text-muted-foreground mt-1 leading-snug line-clamp-2">
+                          {{ data.formatEtapaCobranzaCorta(resumenCobro(prop).edad_mora_dias) }}
+                        </div>
+                      </td>
+                      <td class="px-5 sm:px-6 py-4 text-right text-sm font-semibold tabular-nums text-foreground">
+                        {{ data.formatDeuda(data.getDeudaActualParaCuenta(prop)) }}
+                      </td>
+                      <td class="px-5 sm:px-6 py-4 text-right">
+                        <a
+                          [routerLink]="['/propiedades', prop.id]"
+                          (click)="$event.stopPropagation()"
+                          class="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-border text-muted-foreground hover:bg-muted hover:text-primary transition-colors"
+                          title="Ver detalle"
+                          aria-label="Ver detalle"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
+                            <circle cx="12" cy="12" r="3" />
+                          </svg>
+                        </a>
+                      </td>
+                    </tr>
+                  }
                 }
               </tbody>
             </table>
           </div>
-          @if (filtered().length === 0) {
+          @if (grouped().length === 0) {
             <div class="text-center py-12 text-muted-foreground text-sm">No se encontraron propiedades</div>
           }
         </div>
@@ -214,7 +233,7 @@ import { fadeInUp, fadeInUpStagger } from '../../core/animations/animations';
     </div>
   `,
 })
-export class PropiedadesPage {
+export class CuentasPage {
   readonly loading = signal(true);
   readonly error = signal<string | null>(null);
   search = signal('');
@@ -222,7 +241,7 @@ export class PropiedadesPage {
   filterMora = signal('todas');
 
   propiedadesConCliente = computed(() =>
-    this.data.mockPropiedades.map((p) => ({
+    this.data.mockCuentas.map((p) => ({
       ...p,
       cliente: this.data.getClienteById(p.cliente_id),
     }))
@@ -240,8 +259,15 @@ export class PropiedadesPage {
         p.cliente?.nombre.toLowerCase().includes(s) ||
         p.cobro_nombre?.toLowerCase().includes(s) ||
         p.cobro_email?.toLowerCase().includes(s) ||
-        p.cobro_documento?.toLowerCase().includes(s);
-      const matchTipo = tip === 'todos' || p.tipo_propiedad === tip;
+        p.cobro_documento?.toLowerCase().includes(s) ||
+        (p.deudores ?? []).some(
+          (d) =>
+            d.nombre?.toLowerCase().includes(s) ||
+            d.documento?.toLowerCase().includes(s) ||
+            d.emails.some((e) => e.toLowerCase().includes(s)) ||
+            (d.telefono ?? '').toLowerCase().includes(s)
+        );
+      const matchTipo = tip === 'todos' || p.tipo_cuenta === tip;
       const diasMora = this.resumenCobro(p).edad_mora_dias;
       const n = Number.isFinite(Number(diasMora)) ? Math.max(0, Math.floor(Number(diasMora))) : null;
       const matchMora =
@@ -256,6 +282,26 @@ export class PropiedadesPage {
     });
   });
 
+  grouped = computed(() => {
+    const groups = new Map<
+      string,
+      { clienteId: string; clienteNombre: string; cuentas: CuentaConCliente[] }
+    >();
+    for (const p of this.filtered()) {
+      const existing = groups.get(p.cliente_id);
+      if (existing) {
+        existing.cuentas.push(p);
+      } else {
+        groups.set(p.cliente_id, {
+          clienteId: p.cliente_id,
+          clienteNombre: p.cliente?.nombre?.trim() || 'Cliente',
+          cuentas: [p],
+        });
+      }
+    }
+    return [...groups.values()];
+  });
+
   constructor(
     protected data: DataService,
     private router: Router
@@ -267,7 +313,7 @@ export class PropiedadesPage {
     this.loading.set(true);
     this.error.set(null);
     try {
-      await Promise.all([this.data.loadClientes(), this.data.loadPropiedades()]);
+      await Promise.all([this.data.loadClientes(), this.data.loadCuentas()]);
     } catch {
       this.error.set('No se pudieron cargar las propiedades.');
     } finally {
@@ -275,12 +321,12 @@ export class PropiedadesPage {
     }
   }
 
-  navigateToPropiedad(id: string): void {
+  navigateToCuenta(id: string): void {
     this.router.navigate(['/propiedades', id]);
   }
 
-  protected resumenCobro(p: Propiedad) {
-    return this.data.getResumenMoraCobroParaPropiedad(p);
+  protected resumenCobro(p: Cuenta) {
+    return this.data.getResumenMoraCobroParaCuenta(p);
   }
 
   protected toNumber(value: unknown): number {

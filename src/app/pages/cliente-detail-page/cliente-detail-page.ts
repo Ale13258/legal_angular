@@ -1,21 +1,43 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, computed, inject, signal, ChangeDetectorRef } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
-import { ReactiveFormsModule, FormBuilder, Validators } from '@angular/forms';
+import {
+  ReactiveFormsModule,
+  FormArray,
+  FormBuilder,
+  FormControl,
+  FormGroup,
+  Validators,
+  type AbstractControl,
+  type ValidationErrors,
+} from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import {
   DataService,
-  type CreatePropiedadPayload,
+  type CreateCuentaPayload,
   type UpdateClientePayload,
-  type UpdatePropiedadPayload,
+  type UpdateCuentaPayload,
 } from '../../core/services/data.service';
 import { ClientReportDialog } from '../../components/client-report-dialog/client-report-dialog';
-import { CrearCuentaDialog } from '../../components/crear-cuenta-dialog/crear-cuenta-dialog';
+import { CrearProcesoLegalDialog } from '../../components/crear-proceso-legal-dialog/crear-proceso-legal-dialog';
 import { ReportPreviewDialog } from '../../components/report-preview-dialog/report-preview-dialog';
 import { BalanceCard } from '../../shared/balance-card/balance-card';
 import { DeudorCell } from '../../shared/deudor-cell/deudor-cell';
 import { StatusBadge } from '../../shared/status-badge/status-badge';
 import { fadeInUpStagger } from '../../core/animations/animations';
-import type { Cuenta, Propiedad, TipoPersona, TipoPropiedad } from '../../core/models';
+import type { ProcesoLegal, DeudorCobro, Cuenta, TipoPersona, TipoCuenta } from '../../core/models';
+import { formatMontoColombiano } from '../../core/utils/format-monto-colombiano';
+import { resolveDeudores } from '../../core/utils/normalize-cuenta-deudores';
+import { parseMontoColombiano } from '../../core/utils/parse-monto-colombiano';
+
+const MAX_DEUDORES = 10;
+const MAX_EMAILS_POR_DEUDOR = 5;
+
+function deudorContactoValidator(group: AbstractControl): ValidationErrors | null {
+  const telefono = String(group.get('telefono')?.value ?? '').trim();
+  const emails = group.get('emails') as FormArray | null;
+  const hasEmail = Boolean(emails?.controls.some((c) => String(c.value ?? '').trim()));
+  return hasEmail || telefono ? null : { contactoRequerido: true };
+}
 
 @Component({
   selector: 'app-cliente-detail-page',
@@ -27,7 +49,7 @@ import type { Cuenta, Propiedad, TipoPersona, TipoPropiedad } from '../../core/m
     DeudorCell,
     StatusBadge,
     ClientReportDialog,
-    CrearCuentaDialog,
+    CrearProcesoLegalDialog,
     ReportPreviewDialog,
   ],
   animations: [fadeInUpStagger],
@@ -133,7 +155,7 @@ import type { Cuenta, Propiedad, TipoPersona, TipoPropiedad } from '../../core/m
               </h2>
               <button
                 type="button"
-                (click)="openNuevaPropiedad()"
+                (click)="openNuevaCuenta()"
                 class="inline-flex items-center gap-1.5 rounded-xl bg-primary text-primary-foreground px-4 py-2 text-sm font-medium hover:opacity-90"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
@@ -143,23 +165,21 @@ import type { Cuenta, Propiedad, TipoPersona, TipoPropiedad } from '../../core/m
             <div class="table-wrap">
               <table class="w-full min-w-[72rem] table-fixed">
                 <colgroup>
-                  <col class="w-[18%]" />
-                  <col class="w-[8%]" />
+                  <col class="w-[14%]" />
+                  <col class="w-[12%]" />
                   <col class="w-[11%]" />
-                  <col class="w-[14%]" />
-                  <col class="w-[14%]" />
+                  <col class="w-[13%]" />
+                  <col class="w-[13%]" />
                   <col class="w-[11%]" />
                   <col class="w-[12%]" />
-                  <col class="w-[12%]" />
+                  <col class="w-[14%]" />
                 </colgroup>
                 <thead>
                   <tr class="border-b border-border">
-                    <th class="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Propiedad</th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Dirección</th>
                     <th class="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Tipo</th>
-                    <th class="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Identificador</th>
-                    <th class="deudor-col text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">
-                      Deudor
-                    </th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Propiedad</th>
+                    <th class="deudor-col text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Deudor</th>
                     <th
                       class="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase whitespace-nowrap"
                       title="Días en mora y etapa. Pasa el cursor para ver alta en app, inicio y fin de cobro."
@@ -168,11 +188,11 @@ import type { Cuenta, Propiedad, TipoPersona, TipoPropiedad } from '../../core/m
                     </th>
                     <th class="text-right px-3 py-3 text-xs font-semibold text-muted-foreground uppercase whitespace-nowrap">Valor inicial</th>
                     <th class="text-right px-3 py-3 text-xs font-semibold text-muted-foreground uppercase whitespace-nowrap">Deuda a la fecha</th>
-                    <th class="text-right px-3 py-3 text-xs font-semibold text-muted-foreground uppercase whitespace-nowrap">Acciones</th>
+                    <th class="text-right px-1 py-3 text-xs font-semibold text-muted-foreground uppercase whitespace-nowrap">Acciones</th>
                   </tr>
                 </thead>
                 <tbody>
-                  @for (p of propiedades(); track p.id; let i = $index) {
+                  @for (p of cuentas(); track p.id; let i = $index) {
                     <tr
                       [@fadeInUpStagger]="{ value: '', params: { delay: i * 50, duration: 200, offset: 5, ease: 'ease-out' } }"
                       class="border-b border-border/50 hover:bg-secondary/50"
@@ -180,14 +200,14 @@ import type { Cuenta, Propiedad, TipoPersona, TipoPropiedad } from '../../core/m
                       <td class="px-4 py-3 text-muted-foreground">
                         <div class="truncate" [title]="p.direccion">{{ p.direccion }}</div>
                       </td>
-                      <td class="px-4 py-3">
-                        <app-status-badge [label]="data.tipoPropiedadLabels[p.tipo_propiedad]" [variant]="p.tipo_propiedad" />
+                      <td class="px-4 py-3 overflow-hidden">
+                        <app-status-badge [label]="data.tipoCuentaLabels[p.tipo_cuenta]" [variant]="p.tipo_cuenta" />
                       </td>
-                      <td class="px-4 py-3 font-medium">
+                      <td class="px-4 py-3 font-medium overflow-hidden">
                         <div class="truncate" [title]="p.identificador">{{ p.identificador }}</div>
                       </td>
                       <td class="deudor-col px-4 py-3 text-sm align-top">
-                        <app-deudor-cell [propiedad]="p" />
+                        <app-deudor-cell [cuenta]="p" />
                       </td>
                       <td
                         class="px-4 py-3 text-right text-sm align-top max-w-[14rem]"
@@ -199,42 +219,45 @@ import type { Cuenta, Propiedad, TipoPersona, TipoPropiedad } from '../../core/m
                         <div class="text-xs text-muted-foreground mt-1 leading-snug line-clamp-2">
                           {{ data.formatEtapaCobranzaCorta(resumenCobro(p).edad_mora_dias) }}
                         </div>
+                        <div class="text-xs text-muted-foreground mt-1">
+                          Inicio: {{ data.formatFechaCorta(resumenCobro(p).fecha_inicio_cobro) }}
+                        </div>
                       </td>
                       <td class="px-3 py-3 text-right tabular-nums whitespace-nowrap align-middle">
-                        {{ data.formatCurrency(data.getTotalCobradoParaPropiedad(p)) }}
+                        {{ data.formatCurrency(data.getTotalCobradoParaCuenta(p)) }}
                       </td>
                       <td class="px-3 py-3 text-right tabular-nums whitespace-nowrap align-middle font-semibold">
-                        {{ data.formatDeuda(data.getDeudaActualParaPropiedad(p)) }}
+                        {{ data.formatDeuda(data.getDeudaActualParaCuenta(p)) }}
                       </td>
-                      <td class="px-3 py-3 whitespace-nowrap align-middle text-right">
-                        <div class="inline-flex items-center justify-end gap-1 shrink-0">
+                      <td class="px-1 py-3 whitespace-nowrap align-middle text-right">
+                        <div class="inline-flex items-center justify-end gap-0 shrink-0">
                           <button
                             type="button"
                             (click)="openPropReport(p)"
-                            class="p-2 rounded-lg text-muted-foreground hover:text-primary hover:bg-secondary"
+                            class="p-1 rounded-lg text-muted-foreground hover:text-primary hover:bg-secondary"
                             title="Informe"
                           >
                             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></svg>
                           </button>
                           <a
                             [routerLink]="['/propiedades', p.id]"
-                            class="p-2 rounded-lg text-muted-foreground hover:text-primary hover:bg-secondary"
+                            class="p-1 rounded-lg text-muted-foreground hover:text-primary hover:bg-secondary"
                             title="Ver detalle"
                           >
                             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
                           </a>
                           <button
                             type="button"
-                            (click)="editarPropiedad(p)"
-                            class="p-2 rounded-lg text-muted-foreground hover:text-primary hover:bg-secondary"
+                            (click)="editarCuenta(p)"
+                            class="p-1 rounded-lg text-muted-foreground hover:text-primary hover:bg-secondary"
                             title="Editar"
                           >
                             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
                           </button>
                           <button
                             type="button"
-                            (click)="eliminarPropiedad(p)"
-                            class="p-2 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                            (click)="eliminarCuenta(p)"
+                            class="p-1 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10"
                             title="Eliminar"
                           >
                             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>
@@ -250,24 +273,24 @@ import type { Cuenta, Propiedad, TipoPersona, TipoPropiedad } from '../../core/m
 
           <div class="bg-card rounded-2xl shadow-card p-6 border border-border/50">
             <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
-              <h2 class="font-display font-bold text-lg">Cuentas del Cliente</h2>
+              <h2 class="font-display font-bold text-lg">No. RADICADO</h2>
               <button
                 type="button"
-                (click)="openNuevaCuenta()"
+                (click)="openNuevoProcesoLegal()"
                 class="inline-flex items-center gap-1.5 rounded-xl bg-primary text-primary-foreground px-4 py-2 text-sm font-medium hover:opacity-90 shrink-0"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
-                Añadir cuenta
+                Añadir radicado
               </button>
             </div>
             <p class="text-sm text-muted-foreground mb-4">
-              El tipo, estado y etapa alimentan el dashboard y los informes. Crea al menos una cuenta por cliente si aplica a tu operación.
+              El tipo, estado y etapa alimentan el dashboard y los informes. Crea al menos un radicado por cliente si aplica a tu operación.
             </p>
             <div class="overflow-x-auto">
               <table class="w-full">
                 <thead>
                   <tr class="border-b border-border">
-                    <th class="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Cuenta</th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">No. RADICADO</th>
                     <th class="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Tipo</th>
                     <th class="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Estado</th>
                     <th class="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Etapa</th>
@@ -275,12 +298,12 @@ import type { Cuenta, Propiedad, TipoPersona, TipoPropiedad } from '../../core/m
                   </tr>
                 </thead>
                 <tbody>
-                  @for (cu of cuentas(); track cu.id) {
+                  @for (cu of procesosLegales(); track cu.id) {
                     <tr class="border-b border-border/50">
                       <td class="px-4 py-3 font-mono text-sm">{{ cu.numero_cuenta }}</td>
                       <td class="px-4 py-3">
                         <app-status-badge
-                          [label]="data.tipoCuentaLabels[cu.tipo]"
+                          [label]="data.tipoProcesoLegalLabels[cu.tipo]"
                           [variant]="
                             cu.tipo === 'juridica'
                               ? 'juridica'
@@ -291,24 +314,24 @@ import type { Cuenta, Propiedad, TipoPersona, TipoPropiedad } from '../../core/m
                         />
                       </td>
                       <td class="px-4 py-3">
-                        <app-status-badge [label]="data.estadoCuentaLabels[cu.estado]" [variant]="cu.estado" />
+                        <app-status-badge [label]="data.estadoProcesoLegalLabels[cu.estado]" [variant]="cu.estado" />
                       </td>
                       <td class="px-4 py-3 text-muted-foreground">{{ data.etapaProcesoLabels[cu.etapa_proceso] }}</td>
                       <td class="px-4 py-3">
                         <div class="flex items-center justify-end gap-1">
                           <button
                             type="button"
-                            (click)="editarCuenta(cu)"
+                            (click)="editarProcesoLegal(cu)"
                             class="p-2 rounded-lg text-muted-foreground hover:text-primary hover:bg-secondary"
-                            title="Editar cuenta"
+                            title="Editar radicado"
                           >
                             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
                           </button>
                           <button
                             type="button"
-                            (click)="eliminarCuenta(cu)"
+                            (click)="eliminarProcesoLegal(cu)"
                             class="p-2 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                            title="Eliminar cuenta"
+                            title="Eliminar radicado"
                           >
                             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>
                           </button>
@@ -318,7 +341,7 @@ import type { Cuenta, Propiedad, TipoPersona, TipoPropiedad } from '../../core/m
                   } @empty {
                     <tr>
                       <td colspan="5" class="px-4 py-10 text-center text-sm text-muted-foreground">
-                        No hay cuentas. Pulsa <span class="font-medium text-foreground">Añadir cuenta</span> para registrar tipo, estado y etapa.
+                        No hay radicados. Pulsa <span class="font-medium text-foreground">Añadir radicado</span> para registrar tipo, estado y etapa.
                       </td>
                     </tr>
                   }
@@ -333,43 +356,43 @@ import type { Cuenta, Propiedad, TipoPersona, TipoPropiedad } from '../../core/m
         <app-client-report-dialog
           [open]="true"
           [cliente]="cliente()!"
-          [propiedades]="propiedades()"
+          [cuentas]="cuentas()"
           (openChange)="clientReportOpen.set($event)"
         />
       }
       @if (propReportOpen() && selectedProp()) {
         <app-report-preview-dialog
           [open]="true"
-          [propiedad]="selectedProp()!"
+          [cuenta]="selectedProp()!"
           (openChange)="propReportOpen.set($event)"
         />
       }
 
-      @if (cuentaCreateOpen()) {
-        <app-crear-cuenta-dialog
+      @if (procesoLegalDialogOpen()) {
+        <app-crear-proceso-legal-dialog
           [open]="true"
           [clienteId]="cliente()!.id"
-          [propiedades]="propiedades()"
-          [cuenta]="cuentaEditing()"
-          [cuentaFormNonce]="cuentaDialogNonce()"
-          (openChange)="onCuentaDialogOpenChange($event)"
+          [cuentas]="cuentas()"
+          [cuenta]="procesoLegalEditing()"
+          [cuentaFormNonce]="procesoLegalDialogNonce()"
+          (openChange)="onProcesoLegalDialogOpenChange($event)"
         />
       }
 
-      @if (propiedadCreateOpen()) {
+      @if (cuentaCreateOpen()) {
         <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div class="fixed inset-0 bg-black/50" (click)="propiedadCreateOpen.set(false)"></div>
+          <div class="fixed inset-0 bg-black/50" (click)="cuentaCreateOpen.set(false)"></div>
           <div
             class="relative z-50 bg-card rounded-2xl shadow-lg border border-border w-full max-w-xl max-h-[90vh] overflow-y-auto"
             (click)="$event.stopPropagation()"
           >
             <div class="flex items-center justify-between px-6 py-4 border-b border-border sticky top-0 bg-card">
               <h2 class="font-display text-lg font-bold text-foreground">
-                {{ propiedadEditingId() ? 'Editar Propiedad' : 'Nueva Propiedad' }}
+                {{ cuentaEditingId() ? 'Editar Propiedad' : 'Nueva Propiedad' }}
               </h2>
               <button
                 type="button"
-                (click)="closePropiedadModal()"
+                (click)="closeCuentaModal()"
                 class="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted"
                 aria-label="Cerrar"
               >
@@ -377,20 +400,20 @@ import type { Cuenta, Propiedad, TipoPersona, TipoPropiedad } from '../../core/m
               </button>
             </div>
 
-            <form (ngSubmit)="guardarPropiedad()" [formGroup]="propiedadForm" class="p-6 space-y-4">
-              @if (propiedadCreateError()) {
+            <form (ngSubmit)="guardarCuenta()" [formGroup]="cuentaForm" class="p-6 space-y-4">
+              @if (cuentaCreateError()) {
                 <div class="rounded-xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-                  {{ propiedadCreateError() }}
+                  {{ cuentaCreateError() }}
                 </div>
               }
 
               <div>
-                <label class="block text-sm font-medium text-foreground mb-1.5">Tipo de propiedad</label>
+                <label class="block text-sm font-medium text-foreground mb-1.5">Tipo de cuenta</label>
                 <select
-                  formControlName="tipo_propiedad"
+                  formControlName="tipo_cuenta"
                   class="w-full rounded-xl border border-input bg-background px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                 >
-                  @for (opt of tipoPropiedadOptions; track opt.value) {
+                  @for (opt of tipoCuentaOptions; track opt.value) {
                     <option [value]="opt.value">{{ opt.label }}</option>
                   }
                 </select>
@@ -424,73 +447,133 @@ import type { Cuenta, Propiedad, TipoPersona, TipoPropiedad } from '../../core/m
                 ></textarea>
               </div>
 
-              <div class="border-t border-border pt-4 space-y-4">
+              <div class="border-t border-border pt-4 space-y-4" formArrayName="deudores">
                 <div>
-                  <h3 class="text-sm font-semibold text-foreground">Usuario a cobrar</h3>
+                  <h3 class="text-sm font-semibold text-foreground">Usuario(s) a cobrar</h3>
                   <p class="mt-1 text-xs text-muted-foreground">
-                    A este correo se enviarán las notificaciones de cobro de esta propiedad.
+                    Puedes agregar más de un deudor. El correo no es obligatorio: si no lo tienes, indica un teléfono.
+                    El recordatorio por email solo se envía cuando hay correo.
                   </p>
                 </div>
 
-                <div>
-                  <label class="block text-sm font-medium text-foreground mb-1.5">Nombre completo / Razón social</label>
-                  <input
-                    formControlName="cobro_nombre"
-                    placeholder="Nombre de quien se cobra"
-                    class="w-full rounded-xl border border-input bg-background px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                  />
-                </div>
+                @for (deudorCtrl of deudoresControls(); track $index; let di = $index) {
+                  <div [formGroupName]="di" class="rounded-xl border border-border/70 bg-muted/20 p-4 space-y-4">
+                    <div class="flex items-center justify-between gap-2">
+                      <p class="text-sm font-medium text-foreground">Deudor {{ di + 1 }}</p>
+                      @if (deudoresArray.length > 1) {
+                        <button
+                          type="button"
+                          (click)="removeDeudor(di)"
+                          class="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-destructive hover:bg-destructive/10"
+                        >
+                          Quitar
+                        </button>
+                      }
+                    </div>
 
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label class="block text-sm font-medium text-foreground mb-1.5">Tipo de persona</label>
-                    <select
-                      formControlName="cobro_tipo_persona"
-                      class="w-full rounded-xl border border-input bg-background px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                    >
-                      <option value="natural">Persona natural</option>
-                      <option value="juridica">Persona jurídica</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label class="block text-sm font-medium text-foreground mb-1.5">
-                      {{ propiedadForm.get('cobro_tipo_persona')?.value === 'natural' ? 'Cédula (CC)' : 'NIT' }}
-                    </label>
-                    <input
-                      formControlName="cobro_documento"
-                      [placeholder]="propiedadForm.get('cobro_tipo_persona')?.value === 'natural' ? '1.023.456.789' : '900.123.456-7'"
-                      class="w-full rounded-xl border border-input bg-background px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                    />
-                  </div>
-                </div>
+                    <div>
+                      <label class="block text-sm font-medium text-foreground mb-1.5">Nombre completo / Razón social</label>
+                      <input
+                        formControlName="nombre"
+                        placeholder="Nombre de quien se cobra"
+                        class="w-full rounded-xl border border-input bg-background px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                      />
+                    </div>
 
-                <div>
-                  <label class="block text-sm font-medium text-foreground mb-1.5">Correo de notificación</label>
-                  <input
-                    type="email"
-                    formControlName="cobro_email"
-                    placeholder="correo@ejemplo.com"
-                    class="w-full rounded-xl border border-input bg-background px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                  />
-                </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label class="block text-sm font-medium text-foreground mb-1.5">Tipo de persona</label>
+                        <select
+                          formControlName="tipo_persona"
+                          class="w-full rounded-xl border border-input bg-background px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                        >
+                          <option value="natural">Persona natural</option>
+                          <option value="juridica">Persona jurídica</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label class="block text-sm font-medium text-foreground mb-1.5">
+                          {{ deudorCtrl.get('tipo_persona')?.value === 'natural' ? 'Cédula (CC)' : 'NIT' }}
+                        </label>
+                        <input
+                          formControlName="documento"
+                          [placeholder]="deudorCtrl.get('tipo_persona')?.value === 'natural' ? '1.023.456.789' : '900.123.456-7'"
+                          class="w-full rounded-xl border border-input bg-background px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label class="block text-sm font-medium text-foreground mb-1.5">Teléfono</label>
+                      <input
+                        type="tel"
+                        formControlName="telefono"
+                        placeholder="300 123 4567"
+                        class="w-full rounded-xl border border-input bg-background px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                      />
+                    </div>
+
+                    <div formArrayName="emails" class="space-y-3">
+                      <label class="block text-sm font-medium text-foreground">Correos de notificación (opcional)</label>
+                      @for (emailCtrl of emailsControls(di); track $index; let ei = $index) {
+                        <div class="flex gap-2">
+                          <input
+                            type="email"
+                            [formControlName]="ei"
+                            placeholder="correo@ejemplo.com"
+                            class="w-full rounded-xl border border-input bg-background px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                          />
+                          @if (emailsArray(di).length > 1) {
+                            <button
+                              type="button"
+                              (click)="removeEmail(di, ei); $event.stopPropagation()"
+                              class="shrink-0 rounded-xl border border-border px-3 text-sm text-muted-foreground hover:bg-muted hover:text-destructive"
+                              aria-label="Quitar correo"
+                            >
+                              ×
+                            </button>
+                          }
+                        </div>
+                      }
+                      <button
+                        type="button"
+                        (click)="addEmail(di); $event.stopPropagation()"
+                        [disabled]="emailsArray(di).length >= maxEmailsPorDeudor"
+                        class="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-border px-3 py-2 text-sm font-medium text-foreground hover:bg-muted disabled:opacity-40"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
+                        Agregar correo
+                      </button>
+                    </div>
+                    @if (deudorCtrl.hasError('contactoRequerido') && deudorCtrl.touched) {
+                      <p class="text-xs text-destructive">Indica al menos un correo o un teléfono.</p>
+                    }
+                  </div>
+                }
+
+                <button
+                  type="button"
+                  (click)="addDeudor()"
+                  [disabled]="deudoresArray.length >= maxDeudores"
+                  class="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-border px-4 py-2.5 text-sm font-medium text-foreground hover:bg-muted disabled:opacity-40"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
+                  Agregar deudor
+                </button>
               </div>
 
               <div>
                 <label class="block text-sm font-medium text-foreground mb-1.5">Saldo inicial (COP)</label>
                 <input
-                  type="number"
-                  min="0"
-                  step="1"
+                  type="text"
+                  inputmode="decimal"
                   formControlName="saldo_inicial"
-                  [readonly]="!!propiedadEditingId()"
-                  placeholder="Ej: 250000"
+                  placeholder="Ej: 9.565.879 o 9565879"
                   class="w-full rounded-xl border border-input bg-background px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                 />
-                @if (propiedadEditingId()) {
-                  <p class="mt-1 text-xs text-muted-foreground">
-                    El valor inicial se define al crear la propiedad y no cambia con pagos ni ediciones.
-                  </p>
-                }
+                <p class="mt-1 text-xs text-muted-foreground">
+                  Base de la deuda (deuda = saldo inicial − pagos). Puedes corregirlo si hay inconsistencias.
+                </p>
               </div>
 
               <div>
@@ -508,17 +591,17 @@ import type { Cuenta, Propiedad, TipoPersona, TipoPropiedad } from '../../core/m
               <div class="flex gap-3 pt-2">
                 <button
                   type="button"
-                  (click)="closePropiedadModal()"
+                  (click)="closeCuentaModal()"
                   class="flex-1 rounded-xl border-2 border-border px-4 py-2.5 text-sm font-medium hover:bg-muted"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  [disabled]="propiedadCreateLoading() || propiedadForm.invalid"
+                  [disabled]="cuentaCreateLoading() || cuentaForm.invalid"
                   class="flex-1 inline-flex items-center justify-center gap-2 rounded-xl bg-primary text-primary-foreground px-4 py-2.5 text-sm font-medium hover:opacity-90 disabled:opacity-60"
                 >
-                  {{ propiedadEditingId() ? 'Guardar cambios' : 'Guardar Propiedad' }}
+                  {{ cuentaEditingId() ? 'Guardar cambios' : 'Guardar Propiedad' }}
                 </button>
               </div>
             </form>
@@ -526,9 +609,9 @@ import type { Cuenta, Propiedad, TipoPersona, TipoPropiedad } from '../../core/m
         </div>
       }
 
-      @if (deleteConfirmOpen() && propiedadToDelete()) {
+      @if (deleteConfirmOpen() && cuentaToDelete()) {
         <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div class="fixed inset-0 bg-black/50" (click)="cancelDeletePropiedad()"></div>
+          <div class="fixed inset-0 bg-black/50" (click)="cancelDeleteCuenta()"></div>
           <div class="relative z-50 w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-lg">
             <div class="mb-4 flex items-start gap-3">
               <div class="rounded-xl bg-destructive/10 p-2 text-destructive">
@@ -537,7 +620,7 @@ import type { Cuenta, Propiedad, TipoPersona, TipoPropiedad } from '../../core/m
               <div>
                 <h3 class="font-display text-lg font-bold text-foreground">Confirmar eliminacion</h3>
                 <p class="mt-1 text-sm text-muted-foreground">
-                  Vas a eliminar la propiedad <span class="font-medium text-foreground">"{{ propiedadToDelete()!.identificador }}"</span>.
+                  Vas a eliminar la propiedad <span class="font-medium text-foreground">"{{ cuentaToDelete()!.identificador }}"</span>.
                 </p>
                 <p class="mt-1 text-xs text-destructive/90">Esta accion no se puede deshacer.</p>
               </div>
@@ -546,14 +629,14 @@ import type { Cuenta, Propiedad, TipoPersona, TipoPropiedad } from '../../core/m
             <div class="flex gap-3">
               <button
                 type="button"
-                (click)="cancelDeletePropiedad()"
+                (click)="cancelDeleteCuenta()"
                 class="flex-1 rounded-xl border border-border px-4 py-2.5 text-sm font-medium hover:bg-muted"
               >
                 Cancelar
               </button>
               <button
                 type="button"
-                (click)="confirmDeletePropiedad()"
+                (click)="confirmDeleteCuenta()"
                 class="flex-1 rounded-xl bg-destructive px-4 py-2.5 text-sm font-medium text-destructive-foreground hover:opacity-90"
               >
                 Eliminar
@@ -660,9 +743,9 @@ import type { Cuenta, Propiedad, TipoPersona, TipoPropiedad } from '../../core/m
         </div>
       }
 
-      @if (deleteCuentaConfirmOpen() && cuentaToDelete()) {
+      @if (deleteProcesoLegalConfirmOpen() && procesoLegalToDelete()) {
         <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div class="fixed inset-0 bg-black/50" (click)="cancelDeleteCuenta()"></div>
+          <div class="fixed inset-0 bg-black/50" (click)="cancelDeleteProcesoLegal()"></div>
           <div class="relative z-50 w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-lg">
             <div class="mb-4 flex items-start gap-3">
               <div class="rounded-xl bg-destructive/10 p-2 text-destructive">
@@ -671,7 +754,7 @@ import type { Cuenta, Propiedad, TipoPersona, TipoPropiedad } from '../../core/m
               <div>
                 <h3 class="font-display text-lg font-bold text-foreground">Confirmar eliminacion</h3>
                 <p class="mt-1 text-sm text-muted-foreground">
-                  Vas a eliminar la cuenta <span class="font-medium text-foreground">"{{ cuentaToDelete()!.numero_cuenta }}"</span>.
+                  Vas a eliminar el radicado <span class="font-medium text-foreground">"{{ procesoLegalToDelete()!.numero_cuenta }}"</span>.
                 </p>
                 <p class="mt-1 text-xs text-destructive/90">Esta accion no se puede deshacer.</p>
               </div>
@@ -680,14 +763,14 @@ import type { Cuenta, Propiedad, TipoPersona, TipoPropiedad } from '../../core/m
             <div class="flex gap-3">
               <button
                 type="button"
-                (click)="cancelDeleteCuenta()"
+                (click)="cancelDeleteProcesoLegal()"
                 class="flex-1 rounded-xl border border-border px-4 py-2.5 text-sm font-medium hover:bg-muted"
               >
                 Cancelar
               </button>
               <button
                 type="button"
-                (click)="confirmDeleteCuenta()"
+                (click)="confirmDeleteProcesoLegal()"
                 class="flex-1 rounded-xl bg-destructive px-4 py-2.5 text-sm font-medium text-destructive-foreground hover:opacity-90"
               >
                 Eliminar
@@ -701,20 +784,24 @@ import type { Cuenta, Propiedad, TipoPersona, TipoPropiedad } from '../../core/m
 })
 export class ClienteDetailPage {
   private readonly fb = inject(FormBuilder);
+  private readonly cdr = inject(ChangeDetectorRef);
+  /** Fuerza re-render del @for al mutar FormArrays anidados. */
+  private readonly formArraysTick = signal(0);
   cuentaCreateOpen = signal(false);
-  propiedadCreateOpen = signal(false);
-  propiedadEditingId = signal<string | null>(null);
-  propiedadCreateLoading = signal(false);
-  propiedadCreateError = signal<string | null>(null);
+  procesoLegalDialogOpen = signal(false);
+  cuentaEditingId = signal<string | null>(null);
   cuentaEditing = signal<Cuenta | null>(null);
+  cuentaCreateLoading = signal(false);
+  cuentaCreateError = signal<string | null>(null);
+  procesoLegalEditing = signal<ProcesoLegal | null>(null);
   /** Se incrementa en cada apertura del modal para forzar hidratar el formulario con los datos actuales. */
-  cuentaDialogNonce = signal(0);
-  deleteCuentaConfirmOpen = signal(false);
-  cuentaToDelete = signal<Cuenta | null>(null);
+  procesoLegalDialogNonce = signal(0);
+  deleteProcesoLegalConfirmOpen = signal(false);
+  procesoLegalToDelete = signal<ProcesoLegal | null>(null);
   deleteConfirmOpen = signal(false);
-  propiedadToDelete = signal<Propiedad | null>(null);
+  cuentaToDelete = signal<Cuenta | null>(null);
 
-  tipoPropiedadOptions: Array<{ value: TipoPropiedad; label: string }> = [
+  tipoCuentaOptions: Array<{ value: TipoCuenta; label: string }> = [
     { value: 'apartamento', label: 'APARTAMENTO' },
     { value: 'oficina', label: 'OFICINA' },
     { value: 'local', label: 'LOCAL' },
@@ -725,22 +812,121 @@ export class ClienteDetailPage {
     { value: 'otro', label: 'OTRO' },
   ];
 
-  propiedadForm = this.fb.group({
-    tipo_propiedad: ['apartamento' as TipoPropiedad, Validators.required],
+  readonly maxDeudores = MAX_DEUDORES;
+  readonly maxEmailsPorDeudor = MAX_EMAILS_POR_DEUDOR;
+
+  cuentaForm = this.fb.group({
+    tipo_cuenta: ['apartamento' as TipoCuenta, Validators.required],
     identificador: ['', Validators.required],
     direccion: ['', Validators.required],
     notas: [''],
-    saldo_inicial: [0, [Validators.required, Validators.min(0)]],
+    saldo_inicial: ['', Validators.required],
     fecha_inicio_cobro: [''],
-    cobro_nombre: ['', Validators.required],
-    cobro_tipo_persona: ['natural' as TipoPersona, Validators.required],
-    cobro_documento: ['', Validators.required],
-    cobro_email: ['', [Validators.required, Validators.email]],
+    deudores: this.fb.array([this.createDeudorGroup()]),
   });
+
+  get deudoresArray(): FormArray<FormGroup> {
+    return this.cuentaForm.get('deudores') as FormArray<FormGroup>;
+  }
+
+  emailsArray(deudorIndex: number): FormArray<FormControl<string | null>> {
+    return this.deudoresArray.at(deudorIndex).get('emails') as FormArray<FormControl<string | null>>;
+  }
+
+  /** Snapshot del FormArray para que @for detecte altas/bajas. */
+  deudoresControls(): FormGroup[] {
+    this.formArraysTick();
+    return [...this.deudoresArray.controls];
+  }
+
+  /** Snapshot del FormArray para que @for detecte altas/bajas. */
+  emailsControls(deudorIndex: number): FormControl<string | null>[] {
+    this.formArraysTick();
+    return [...this.emailsArray(deudorIndex).controls];
+  }
+
+  addDeudor(): void {
+    if (this.deudoresArray.length >= MAX_DEUDORES) return;
+    this.deudoresArray.push(this.createDeudorGroup());
+    this.bumpFormArraysUi();
+  }
+
+  removeDeudor(index: number): void {
+    if (this.deudoresArray.length <= 1) return;
+    this.deudoresArray.removeAt(index);
+    this.bumpFormArraysUi();
+  }
+
+  addEmail(deudorIndex: number): void {
+    const emails = this.emailsArray(deudorIndex);
+    if (emails.length >= MAX_EMAILS_POR_DEUDOR) return;
+    emails.push(this.createEmailControl(''));
+    this.bumpFormArraysUi();
+  }
+
+  removeEmail(deudorIndex: number, emailIndex: number): void {
+    const emails = this.emailsArray(deudorIndex);
+    if (emails.length <= 1) return;
+    emails.removeAt(emailIndex);
+    this.bumpFormArraysUi();
+  }
+
+  private bumpFormArraysUi(): void {
+    this.formArraysTick.update((n) => n + 1);
+    this.cdr.markForCheck();
+  }
+
+  private createEmailControl(value = ''): FormControl<string | null> {
+    return this.fb.control(value, [Validators.email]);
+  }
+
+  private createDeudorGroup(deudor?: Partial<DeudorCobro>): FormGroup {
+    const emails = (deudor?.emails?.length ? deudor.emails : ['']).map((e) =>
+      this.createEmailControl(e)
+    );
+    return this.fb.group(
+      {
+        nombre: [deudor?.nombre ?? '', Validators.required],
+        tipo_persona: [(deudor?.tipo_persona ?? 'natural') as TipoPersona, Validators.required],
+        documento: [deudor?.documento ?? '', Validators.required],
+        telefono: [deudor?.telefono ?? ''],
+        emails: this.fb.array(emails),
+      },
+      { validators: deudorContactoValidator },
+    );
+  }
+
+  private setDeudoresForm(deudores: DeudorCobro[]): void {
+    const list = deudores.length
+      ? deudores
+      : [{ nombre: '', tipo_persona: 'natural' as TipoPersona, documento: '', emails: [''], telefono: '' }];
+    this.deudoresArray.clear();
+    for (const d of list) {
+      this.deudoresArray.push(this.createDeudorGroup(d));
+    }
+    this.bumpFormArraysUi();
+  }
+
+  private readDeudoresFromForm(): DeudorCobro[] {
+    return this.deudoresArray.controls.map((group) => {
+      const emailsCtrl = group.get('emails') as FormArray;
+      const emails = emailsCtrl.controls
+        .map((c) => String(c.value ?? '').trim())
+        .filter(Boolean);
+      const telefono = String(group.get('telefono')?.value ?? '').trim() || null;
+      return {
+        nombre: String(group.get('nombre')?.value ?? '').trim(),
+        tipo_persona: (group.get('tipo_persona')?.value ?? 'natural') as TipoPersona,
+        documento: String(group.get('documento')?.value ?? '').trim(),
+        emails,
+        telefono,
+      };
+    });
+  }
 
   clientReportOpen = signal(false);
   propReportOpen = signal(false);
-  selectedProp = signal<Propiedad | null>(null);
+  selectedProp = signal<Cuenta | null>(null);
   clienteEditOpen = signal(false);
   clienteEditLoading = signal(false);
   clienteEditError = signal<string | null>(null);
@@ -757,14 +943,14 @@ export class ClienteDetailPage {
 
   private id = computed(() => this.route.snapshot.paramMap.get('id')!);
   cliente = computed(() => this.data.getClienteById(this.id()));
-  propiedades = computed(() =>
-    this.id() ? this.data.getPropiedadesByCliente(this.id()) : []
-  );
   cuentas = computed(() =>
     this.id() ? this.data.getCuentasByCliente(this.id()) : []
   );
+  procesosLegales = computed(() =>
+    this.id() ? this.data.getProcesosLegalesByCliente(this.id()) : []
+  );
   totalMonto = computed(() =>
-    this.propiedades().reduce((sum, p) => sum + this.data.getDeudaActualParaPropiedad(p), 0)
+    this.cuentas().reduce((sum, p) => sum + this.data.getDeudaActualParaCuenta(p), 0)
   );
 
   constructor(
@@ -779,13 +965,16 @@ export class ClienteDetailPage {
     this.error.set(null);
     const id = this.id();
     try {
-      const [, propiedades] = await Promise.all([
+      const [, cuentas] = await Promise.all([
         this.data.loadCliente(id),
-        this.data.loadPropiedadesByCliente(id),
         this.data.loadCuentasByCliente(id),
+        this.data.loadProcesosLegalesByCliente(id),
       ]);
-      const propiedadesDetalle = await this.data.loadPropiedadDetallesForPropiedades(propiedades);
-      await this.data.loadHistorialesForPropiedades(propiedadesDetalle);
+      const propiedadesDetalle = await this.data.loadCuentaDetallesForCuentas(cuentas);
+      await Promise.all([
+        this.data.loadHistorialesForCuentas(propiedadesDetalle),
+        this.data.loadGestionesForCuentas(propiedadesDetalle),
+      ]);
     } catch {
       this.error.set('No se pudo cargar el detalle del cliente.');
     } finally {
@@ -793,7 +982,7 @@ export class ClienteDetailPage {
     }
   }
 
-  openPropReport(p: Propiedad): void {
+  openPropReport(p: Cuenta): void {
     this.selectedProp.set(p);
     this.propReportOpen.set(true);
   }
@@ -844,61 +1033,93 @@ export class ClienteDetailPage {
     }
   }
 
-  openNuevaPropiedad(): void {
-    this.propiedadEditingId.set(null);
-    this.propiedadCreateError.set(null);
-    this.resetPropiedadFormEmpty();
-    this.propiedadCreateOpen.set(true);
-  }
-
   openNuevaCuenta(): void {
+    this.cuentaEditingId.set(null);
     this.cuentaEditing.set(null);
-    this.cuentaDialogNonce.update((n) => n + 1);
+    this.cuentaCreateError.set(null);
+    this.restoreSaldoInicialValidators();
+    this.resetCuentaFormEmpty();
     this.cuentaCreateOpen.set(true);
   }
 
-  editarPropiedad(propiedad: Propiedad): void {
-    this.propiedadEditingId.set(propiedad.id);
-    this.propiedadCreateError.set(null);
-    this.propiedadForm.reset({
-      tipo_propiedad: propiedad.tipo_propiedad,
-      identificador: propiedad.identificador,
-      direccion: propiedad.direccion,
-      notas: propiedad.notas ?? '',
-      saldo_inicial: Number(propiedad.saldo_inicial ?? propiedad.monto_a_la_fecha),
-      fecha_inicio_cobro: propiedad.fecha_inicio_cobro?.trim().slice(0, 10) ?? '',
-      cobro_nombre: propiedad.cobro_nombre ?? '',
-      cobro_tipo_persona: (propiedad.cobro_tipo_persona ?? 'natural') as TipoPersona,
-      cobro_documento: propiedad.cobro_documento ?? '',
-      cobro_email: propiedad.cobro_email ?? '',
-    });
-    this.propiedadCreateOpen.set(true);
-  }
-
-  async eliminarPropiedad(propiedad: Propiedad): Promise<void> {
-    this.propiedadToDelete.set(propiedad);
-    this.deleteConfirmOpen.set(true);
+  openNuevoProcesoLegal(): void {
+    this.procesoLegalEditing.set(null);
+    this.procesoLegalDialogNonce.update((n) => n + 1);
+    this.procesoLegalDialogOpen.set(true);
   }
 
   editarCuenta(cuenta: Cuenta): void {
+    this.cuentaEditingId.set(cuenta.id);
     this.cuentaEditing.set(cuenta);
-    this.cuentaDialogNonce.update((n) => n + 1);
+    this.cuentaCreateError.set(null);
+    this.restoreSaldoInicialValidators();
+    this.cuentaForm.patchValue({
+      tipo_cuenta: cuenta.tipo_cuenta,
+      identificador: cuenta.identificador,
+      direccion: cuenta.direccion,
+      notas: cuenta.notas ?? '',
+      saldo_inicial: formatMontoColombiano(this.data.getTotalCobradoParaCuenta(cuenta)),
+      fecha_inicio_cobro:
+        this.data.getResumenMoraCobroParaCuenta(cuenta).fecha_inicio_cobro?.slice(0, 10) ?? '',
+    });
+    this.setDeudoresForm(resolveDeudores(cuenta));
     this.cuentaCreateOpen.set(true);
   }
 
   async eliminarCuenta(cuenta: Cuenta): Promise<void> {
     this.cuentaToDelete.set(cuenta);
-    this.deleteCuentaConfirmOpen.set(true);
+    this.deleteConfirmOpen.set(true);
+  }
+
+  editarProcesoLegal(proceso: ProcesoLegal): void {
+    this.procesoLegalEditing.set(proceso);
+    this.procesoLegalDialogNonce.update((n) => n + 1);
+    this.procesoLegalDialogOpen.set(true);
+  }
+
+  async eliminarProcesoLegal(cuenta: ProcesoLegal): Promise<void> {
+    this.procesoLegalToDelete.set(cuenta);
+    this.deleteProcesoLegalConfirmOpen.set(true);
+  }
+
+  cancelDeleteProcesoLegal(): void {
+    this.deleteProcesoLegalConfirmOpen.set(false);
+    this.procesoLegalToDelete.set(null);
+  }
+
+  async confirmDeleteProcesoLegal(): Promise<void> {
+    const cuenta = this.procesoLegalToDelete();
+    if (!cuenta) return;
+    this.error.set(null);
+    try {
+      await this.data.deleteProcesoLegal(cuenta.id, cuenta.cliente_id);
+      this.cancelDeleteProcesoLegal();
+    } catch (err) {
+      const status = err instanceof HttpErrorResponse ? err.status : null;
+      this.error.set(
+        status === 404
+          ? 'El servidor no tiene habilitado el borrado de cuentas (o la cuenta ya no existe). Revisa el despliegue del backend.'
+          : 'No se pudo eliminar la cuenta. Intenta nuevamente.'
+      );
+    }
+  }
+
+  onProcesoLegalDialogOpenChange(open: boolean): void {
+    this.procesoLegalDialogOpen.set(open);
+    if (!open) {
+      this.procesoLegalEditing.set(null);
+    }
   }
 
   cancelDeleteCuenta(): void {
-    this.deleteCuentaConfirmOpen.set(false);
+    this.deleteConfirmOpen.set(false);
     this.cuentaToDelete.set(null);
   }
 
   async confirmDeleteCuenta(): Promise<void> {
     const cuenta = this.cuentaToDelete();
     if (!cuenta) return;
+
     this.error.set(null);
     try {
       await this.data.deleteCuenta(cuenta.id, cuenta.cliente_id);
@@ -908,85 +1129,75 @@ export class ClienteDetailPage {
     }
   }
 
-  onCuentaDialogOpenChange(open: boolean): void {
-    this.cuentaCreateOpen.set(open);
-    if (!open) {
-      this.cuentaEditing.set(null);
-    }
+  closeCuentaModal(): void {
+    this.cuentaCreateOpen.set(false);
+    this.cuentaEditingId.set(null);
+    this.cuentaEditing.set(null);
+    this.cuentaCreateError.set(null);
+    this.restoreSaldoInicialValidators();
+    this.resetCuentaFormEmpty();
   }
 
-  cancelDeletePropiedad(): void {
-    this.deleteConfirmOpen.set(false);
-    this.propiedadToDelete.set(null);
-  }
-
-  async confirmDeletePropiedad(): Promise<void> {
-    const propiedad = this.propiedadToDelete();
-    if (!propiedad) return;
-
-    this.error.set(null);
-    try {
-      await this.data.deletePropiedad(propiedad.id, propiedad.cliente_id);
-      this.cancelDeletePropiedad();
-    } catch {
-      this.error.set('No se pudo eliminar la propiedad. Intenta nuevamente.');
-    }
-  }
-
-  closePropiedadModal(): void {
-    this.propiedadCreateOpen.set(false);
-    this.propiedadEditingId.set(null);
-    this.propiedadCreateError.set(null);
-    this.resetPropiedadFormEmpty();
-  }
-
-  async guardarPropiedad(): Promise<void> {
+  async guardarCuenta(): Promise<void> {
     const clienteId = this.id();
     if (!clienteId) return;
-    if (this.propiedadForm.invalid) {
-      this.propiedadForm.markAllAsTouched();
+    if (this.cuentaForm.invalid) {
+      this.cuentaForm.markAllAsTouched();
       return;
     }
-    this.propiedadCreateError.set(null);
-    this.propiedadCreateLoading.set(true);
+    this.cuentaCreateError.set(null);
+    this.cuentaCreateLoading.set(true);
     try {
-      const saldoInicial = Math.max(0, Number(this.propiedadForm.value.saldo_inicial ?? 0));
-      const fechaRaw = this.propiedadForm.value.fecha_inicio_cobro;
+      const editingId = this.cuentaEditingId();
+      const parsed = parseMontoColombiano(this.cuentaForm.value.saldo_inicial);
+      if (!Number.isFinite(parsed) || parsed < 0) {
+        this.cuentaCreateError.set('Ingresa un saldo inicial válido.');
+        return;
+      }
+      const fechaRaw = this.cuentaForm.value.fecha_inicio_cobro;
       const fecha_inicio_cobro =
         typeof fechaRaw === 'string' && fechaRaw.trim() !== ''
           ? fechaRaw.trim().slice(0, 10)
           : null;
-      const commonPayload: UpdatePropiedadPayload = {
-        tipo_propiedad: this.propiedadForm.value.tipo_propiedad as TipoPropiedad,
-        identificador: this.propiedadForm.value.identificador ?? '',
-        direccion: this.propiedadForm.value.direccion ?? '',
-        notas: (this.propiedadForm.value.notas ?? '').trim(),
+      const deudores = this.readDeudoresFromForm();
+      if (!deudores.length || deudores.some((d) => !d.nombre || !d.documento || (!d.emails.length && !d.telefono))) {
+        this.cuentaCreateError.set('Completa los datos de cada deudor (nombre, documento y al menos un correo o un teléfono).');
+        return;
+      }
+      const principal = deudores[0];
+      const commonPayload: UpdateCuentaPayload = {
+        tipo_cuenta: this.cuentaForm.value.tipo_cuenta as TipoCuenta,
+        identificador: this.cuentaForm.value.identificador ?? '',
+        direccion: this.cuentaForm.value.direccion ?? '',
+        notas: (this.cuentaForm.value.notas ?? '').trim(),
+        saldo_inicial: parsed,
         fecha_inicio_cobro,
-        cobro_nombre: (this.propiedadForm.value.cobro_nombre ?? '').trim(),
-        cobro_tipo_persona: this.propiedadForm.value.cobro_tipo_persona as TipoPersona,
-        cobro_documento: (this.propiedadForm.value.cobro_documento ?? '').trim(),
-        cobro_email: (this.propiedadForm.value.cobro_email ?? '').trim(),
+        deudores,
+        cobro_nombre: principal.nombre,
+        cobro_tipo_persona: principal.tipo_persona,
+        cobro_documento: principal.documento,
+        cobro_email: principal.emails[0] ?? '',
       };
-      const editingId = this.propiedadEditingId();
       if (editingId) {
-        await this.data.updatePropiedad(editingId, commonPayload);
+        await this.data.updateCuenta(editingId, commonPayload);
       } else {
-        const payload: CreatePropiedadPayload = {
+        const payload: CreateCuentaPayload = {
           cliente_id: clienteId,
-          tipo_propiedad: commonPayload.tipo_propiedad!,
+          tipo_cuenta: commonPayload.tipo_cuenta!,
           identificador: commonPayload.identificador!,
           direccion: commonPayload.direccion!,
           notas: commonPayload.notas!,
-          saldo_inicial: saldoInicial,
+          saldo_inicial: parsed,
           fecha_inicio_cobro: commonPayload.fecha_inicio_cobro,
+          deudores,
           cobro_nombre: commonPayload.cobro_nombre!,
           cobro_tipo_persona: commonPayload.cobro_tipo_persona!,
           cobro_documento: commonPayload.cobro_documento!,
           cobro_email: commonPayload.cobro_email!,
         };
-        await this.data.createPropiedad(payload);
+        await this.data.createCuenta(payload);
       }
-      this.closePropiedadModal();
+      this.closeCuentaModal();
     } catch (err) {
       const backendMessage =
         err instanceof HttpErrorResponse
@@ -995,36 +1206,38 @@ export class ClienteDetailPage {
       const isContractError =
         typeof backendMessage === 'string' &&
         (backendMessage.includes('saldo_inicial') || backendMessage.includes('unknown') || backendMessage.includes('Unexpected'));
-      this.propiedadCreateError.set(
-        !this.propiedadEditingId() && isContractError
-          ? 'No se pudo crear la propiedad porque el backend no reconoce el campo "saldo_inicial".'
-          : this.propiedadEditingId()
-            ? 'No se pudo editar la propiedad. Verifica los datos e intenta nuevamente.'
-            : 'No se pudo crear la propiedad. Verifica los datos e intenta nuevamente.'
+      this.cuentaCreateError.set(
+        !this.cuentaEditingId() && isContractError
+          ? 'No se pudo crear la cuenta porque el backend no reconoce el campo "saldo_inicial".'
+          : this.cuentaEditingId()
+            ? 'No se pudo editar la cuenta. Verifica los datos e intenta nuevamente.'
+            : 'No se pudo crear la cuenta. Verifica los datos e intenta nuevamente.'
       );
     } finally {
-      this.propiedadCreateLoading.set(false);
+      this.cuentaCreateLoading.set(false);
     }
   }
 
-  protected resumenCobro(p: Propiedad) {
-    return this.data.getResumenMoraCobroParaPropiedad(p);
+  protected resumenCobro(p: Cuenta) {
+    return this.data.getResumenMoraCobroParaCuenta(p);
   }
 
-  private resetPropiedadFormEmpty(): void {
-    this.propiedadForm.reset({
-      tipo_propiedad: 'apartamento' as TipoPropiedad,
+  private resetCuentaFormEmpty(): void {
+    this.cuentaForm.patchValue({
+      tipo_cuenta: 'apartamento' as TipoCuenta,
       identificador: '',
       direccion: '',
       notas: '',
-      saldo_inicial: null,
+      saldo_inicial: '',
       fecha_inicio_cobro: '',
-      cobro_nombre: '',
-      cobro_tipo_persona: 'natural' as TipoPersona,
-      cobro_documento: '',
-      cobro_email: '',
     });
-    this.propiedadForm.markAsPristine();
-    this.propiedadForm.markAsUntouched();
+    this.setDeudoresForm([]);
+    this.cuentaForm.markAsPristine();
+    this.cuentaForm.markAsUntouched();
+  }
+
+  private restoreSaldoInicialValidators(): void {
+    this.cuentaForm.get('saldo_inicial')?.setValidators([Validators.required]);
+    this.cuentaForm.get('saldo_inicial')?.updateValueAndValidity();
   }
 }

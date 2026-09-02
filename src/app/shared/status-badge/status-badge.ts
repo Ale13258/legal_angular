@@ -35,7 +35,7 @@ export class StatusBadge {
       contactado: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400',
       acordado: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400',
       programado: 'bg-primary text-primary-foreground',
-      // Tipos de propiedad (tabla propiedades)
+      // Tipos de cuenta (tabla cuentas)
       apartamento: 'bg-primary text-primary-foreground',
       oficina: 'bg-teal-600 text-white',
       local: 'bg-violet-600 text-white',

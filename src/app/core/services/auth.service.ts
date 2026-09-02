@@ -6,14 +6,10 @@ import { isAccessTokenValid } from '../utils/jwt.utils';
 import { SessionPolicyService } from './session-policy.service';
 import { TokenStorageService } from './token-storage.service';
 
-export type UserRole = 'admin' | 'cliente';
-
-export interface UsuarioRegistrado {
-  email: string;
-  password: string;
-  role: UserRole;
-  clienteId?: string;
-}
+export const STAFF_ROLES = ['super_admin', 'analista_legal', 'abogada_junior'] as const;
+export type StaffRole = (typeof STAFF_ROLES)[number];
+export type UserRole = StaffRole | 'cliente';
+export type InvitableStaffRole = 'analista_legal' | 'abogada_junior';
 
 export interface SesionUsuario {
   id: string;
@@ -31,6 +27,20 @@ export type RegisterClienteErrorReason =
 
 export type RegisterClienteResult = { ok: true } | { ok: false; error: string; reason: RegisterClienteErrorReason };
 
+export type RegisterStaffErrorReason =
+  | 'missing_fields'
+  | 'weak_password'
+  | 'password_mismatch'
+  | 'invalid_invitation'
+  | 'unknown_error';
+
+export type RegisterStaffResult = { ok: true } | { ok: false; error: string; reason: RegisterStaffErrorReason };
+
+export type RegistrationInvitation = {
+  email: string;
+  role: InvitableStaffRole;
+};
+
 type BackendAuthUser = {
   id: string;
   email: string;
@@ -38,6 +48,10 @@ type BackendAuthUser = {
   cliente_id?: string | null;
   clienteId?: string | null;
 };
+
+function isStaffRole(role: string | undefined | null): role is StaffRole {
+  return role === 'super_admin' || role === 'analista_legal' || role === 'abogada_junior';
+}
 
 type AuthTokensResponse = {
   access_token: string;
@@ -58,7 +72,8 @@ export class AuthService {
   /** Usuario de la sesión actual (null si no hay login) */
   readonly currentUser = signal<SesionUsuario | null>(null);
   readonly isReady = signal(false);
-  private readonly isAdminSignal = computed(() => this.currentUser()?.role === 'admin');
+  private readonly isStaffSignal = computed(() => isStaffRole(this.currentUser()?.role));
+  private readonly isSuperAdminSignal = computed(() => this.currentUser()?.role === 'super_admin');
   private readonly isClienteSignal = computed(() => this.currentUser()?.role === 'cliente');
 
   constructor() {
@@ -75,8 +90,18 @@ export class AuthService {
     );
   }
 
+  /** Staff operativo: super_admin | analista_legal | abogada_junior */
+  isStaff(): boolean {
+    return this.isStaffSignal();
+  }
+
+  isSuperAdmin(): boolean {
+    return this.isSuperAdminSignal();
+  }
+
+  /** Alias de isStaff() para compatibilidad con layout/guards existentes. */
   isAdmin(): boolean {
-    return this.isAdminSignal();
+    return this.isStaff();
   }
 
   isCliente(): boolean {
@@ -238,10 +263,84 @@ export class AuthService {
     }
   }
 
+  async getRegistrationInvitation(token: string): Promise<
+    { ok: true; invitation: RegistrationInvitation } | { ok: false; error: string }
+  > {
+    const normalizedToken = token.trim();
+    if (!normalizedToken) {
+      return { ok: false, error: 'Invitación inválida o expirada.' };
+    }
+    try {
+      const invitation = await this.http.getRaw<RegistrationInvitation>(
+        `/auth/registration-invitation?token=${encodeURIComponent(normalizedToken)}`
+      );
+      return { ok: true, invitation };
+    } catch (error: unknown) {
+      if (error instanceof HttpErrorResponse) {
+        const message = this.extractBackendMessage(error.error);
+        return { ok: false, error: message || 'Invitación inválida o expirada.' };
+      }
+      return { ok: false, error: 'Invitación inválida o expirada.' };
+    }
+  }
+
+  async registerStaff(
+    token: string,
+    password: string,
+    confirmPassword: string
+  ): Promise<RegisterStaffResult> {
+    const normalizedToken = token.trim();
+    if (!normalizedToken || !password || !confirmPassword) {
+      return { ok: false, error: 'Completa todos los campos obligatorios.', reason: 'missing_fields' };
+    }
+    if (password.length < 6) {
+      return {
+        ok: false,
+        error: 'La contraseña debe tener al menos 6 caracteres.',
+        reason: 'weak_password',
+      };
+    }
+    if (password !== confirmPassword) {
+      return { ok: false, error: 'Las contraseñas no coinciden.', reason: 'password_mismatch' };
+    }
+    try {
+      await this.http.postRaw<{ user: unknown }>('/auth/register-staff', {
+        token: normalizedToken,
+        password,
+        confirm_password: confirmPassword,
+      });
+      return { ok: true };
+    } catch (error: unknown) {
+      if (error instanceof HttpErrorResponse) {
+        const message = this.extractBackendMessage(error.error);
+        const normalizedMessage = message.toLowerCase();
+        if (
+          error.status === 400 ||
+          normalizedMessage.includes('invit') ||
+          normalizedMessage.includes('expir') ||
+          normalizedMessage.includes('token')
+        ) {
+          return {
+            ok: false,
+            error: message || 'Invitación inválida o expirada.',
+            reason: 'invalid_invitation',
+          };
+        }
+        return {
+          ok: false,
+          error: message || 'No se pudo activar la cuenta.',
+          reason: 'unknown_error',
+        };
+      }
+      return { ok: false, error: 'No se pudo activar la cuenta.', reason: 'unknown_error' };
+    }
+  }
+
   defaultRouteAfterLogin(): string {
     const u = this.currentUser();
     if (!u) return '/login';
-    return u.role === 'admin' ? '/dashboard' : '/mi-cartera';
+    if (u.role === 'super_admin') return '/usuarios';
+    return isStaffRole(u.role) ? '/dashboard' : '/mi-cartera';
   }
 
   async refreshSession(): Promise<boolean> {
