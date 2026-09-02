@@ -127,7 +127,7 @@ import { resolveDeudores } from '../../core/utils/normalize-cuenta-deudores';
                   </dd>
                 </div>
                 <div>
-                  <dt class="text-muted-foreground text-xs uppercase tracking-wide mb-1">Inicio del cobro</dt>
+                  <dt class="text-muted-foreground text-xs uppercase tracking-wide mb-1">Inicio de mora</dt>
                   <dd class="font-medium" title="Fecha de inicio de cobro o, si no está cargada, el alta de la cuenta">
                     {{ data.formatFechaCorta(resumenMora()?.fecha_inicio_cobro) }}
                   </dd>

@@ -182,7 +182,7 @@ function deudorContactoValidator(group: AbstractControl): ValidationErrors | nul
                     <th class="deudor-col text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Deudor</th>
                     <th
                       class="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase whitespace-nowrap"
-                      title="Días en mora y etapa. Pasa el cursor para ver alta en app, inicio y fin de cobro."
+                      title="Días en mora y etapa. Pasa el cursor para ver alta en app, inicio de mora y fin de cobro."
                     >
                       Edad en mora
                     </th>
@@ -220,7 +220,7 @@ function deudorContactoValidator(group: AbstractControl): ValidationErrors | nul
                           {{ data.formatEtapaCobranzaCorta(resumenCobro(p).edad_mora_dias) }}
                         </div>
                         <div class="text-xs text-muted-foreground mt-1">
-                          Inicio: {{ data.formatFechaCorta(resumenCobro(p).fecha_inicio_cobro) }}
+                          Inicio de mora: {{ data.formatFechaCorta(resumenCobro(p).fecha_inicio_cobro) }}
                         </div>
                       </td>
                       <td class="px-3 py-3 text-right tabular-nums whitespace-nowrap align-middle">
@@ -577,14 +577,14 @@ function deudorContactoValidator(group: AbstractControl): ValidationErrors | nul
               </div>
 
               <div>
-                <label class="block text-sm font-medium text-foreground mb-1.5">Inicio del cobro (opcional)</label>
+                <label class="block text-sm font-medium text-foreground mb-1.5">Inicio de mora (opcional)</label>
                 <input
                   type="date"
                   formControlName="fecha_inicio_cobro"
                   class="w-full rounded-xl border border-input bg-background px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                 />
                 <p class="mt-1 text-xs text-muted-foreground">
-                  Fecha que el sistema registra como inicio de cobro para esta unidad. Déjala vacía si no aplica.
+                  Fecha que el sistema registra como inicio de mora para esta unidad. Déjala vacía si no aplica.
                 </p>
               </div>
 
