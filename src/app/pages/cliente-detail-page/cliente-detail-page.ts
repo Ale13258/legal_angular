@@ -224,7 +224,7 @@ function deudorContactoValidator(group: AbstractControl): ValidationErrors | nul
                         </div>
                       </td>
                       <td class="px-3 py-3 text-right tabular-nums whitespace-nowrap align-middle">
-                        {{ data.formatCurrency(data.getTotalCobradoParaCuenta(p)) }}
+                        {{ data.formatCurrency(data.getSaldoInicialParaCuenta(p)) }}
                       </td>
                       <td class="px-3 py-3 text-right tabular-nums whitespace-nowrap align-middle font-semibold">
                         {{ data.formatDeuda(data.getDeudaActualParaCuenta(p)) }}
@@ -572,7 +572,9 @@ function deudorContactoValidator(group: AbstractControl): ValidationErrors | nul
                   class="w-full rounded-xl border border-input bg-background px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                 />
                 <p class="mt-1 text-xs text-muted-foreground">
-                  Base de la deuda (deuda = saldo inicial − pagos). Puedes corregirlo si hay inconsistencias.
+                  Valor inicial estático. Al crear la unidad, la deuda a la fecha es este valor. Cuando
+                  ingreses el primer valor cobrado en el historial, la deuda pasa a calcularse solo
+                  con cobros y pagos (el inicial ya no se mezcla).
                 </p>
               </div>
 
@@ -1058,7 +1060,7 @@ export class ClienteDetailPage {
       identificador: cuenta.identificador,
       direccion: cuenta.direccion,
       notas: cuenta.notas ?? '',
-      saldo_inicial: formatMontoColombiano(this.data.getTotalCobradoParaCuenta(cuenta)),
+      saldo_inicial: formatMontoColombiano(this.data.getSaldoInicialParaCuenta(cuenta)),
       fecha_inicio_cobro:
         this.data.getResumenMoraCobroParaCuenta(cuenta).fecha_inicio_cobro?.slice(0, 10) ?? '',
     });

@@ -208,40 +208,39 @@ export class DataService {
     return this.formatCurrency(safeDebt);
   }
 
-  /** Total cobrado de la unidad = valor inicial registrado al crearla. */
+  /**
+   * Valor / saldo inicial: estático. Solo se muestra; no se mezcla con cobros del historial.
+   */
+  getSaldoInicialParaCuenta(p: Cuenta): number {
+    return this.resolveSaldoInicialPreservado(p);
+  }
+
+  /** @deprecated Alias de `getSaldoInicialParaCuenta`. */
+  getAperturaParaCuenta(p: Cuenta): number {
+    return this.getSaldoInicialParaCuenta(p);
+  }
+
+  /**
+   * Total cobrado: Σ valor_cobrado del historial.
+   * Si aún no hay cobros, coincide con el valor inicial (deuda de apertura).
+   */
   getTotalCobradoParaCuenta(p: Cuenta): number {
-    const lockedInicial = this.readSaldoInicialFijo(p.id);
-    if (lockedInicial != null) return lockedInicial;
+    const sumCobrado = this.getSumaValorCobradoParaCuenta(p);
+    if (sumCobrado > 0) return sumCobrado;
+    return this.getSaldoInicialParaCuenta(p);
+  }
 
-    const inicial = Number(p.saldo_inicial);
-    const montoBackend = Number.isFinite(Number(p.monto_a_la_fecha)) ? Math.max(0, Number(p.monto_a_la_fecha)) : 0;
-    const historial = this.getHistorialByCuenta(p.id);
-    const totalPagado = historial.reduce(
-      (sum, h) => sum + this.toMoneyNumber(h.valor_pagado),
-      0
+  /** Suma de valor_cobrado en el historial de la unidad. */
+  getSumaValorCobradoParaCuenta(p: Cuenta): number {
+    return this.getHistorialByCuenta(p.id).reduce(
+      (sum, h) => sum + this.toMoneyNumber(h.valor_cobrado),
+      0,
     );
+  }
 
-    if (p.saldo_inicial != null && Number.isFinite(inicial)) {
-      const safeInicial = Math.max(0, inicial);
-      // Reparacion para datos guardados con el bug anterior: el inicial quedo igual al monto inflado.
-      if (totalPagado > 0 && montoBackend > 0 && safeInicial - montoBackend === totalPagado) {
-        this.writeSaldoInicialFijo(p.id, montoBackend);
-        return montoBackend;
-      }
-      const montoInfladoEnHistorial = historial.some((h) => this.toMoneyNumber(h.monto_a_la_fecha) === montoBackend);
-      if (totalPagado > 0 && montoBackend > 0 && safeInicial === montoBackend && montoInfladoEnHistorial) {
-        const repairedInicial = Math.max(0, montoBackend - totalPagado);
-        this.writeSaldoInicialFijo(p.id, repairedInicial);
-        return repairedInicial;
-      }
-      this.writeSaldoInicialFijo(p.id, safeInicial);
-      return safeInicial;
-    }
-
-    // Fallback legacy: algunos endpoints devuelven un monto que incluye pagos ya aplicados.
-    const fallbackInicial = Math.max(0, montoBackend - totalPagado);
-    this.writeSaldoInicialFijo(p.id, fallbackInicial);
-    return fallbackInicial;
+  /** True cuando ya existe al menos un valor_cobrado &gt; 0 en el historial. */
+  hasValorCobradoEnHistorial(p: Cuenta): boolean {
+    return this.getSumaValorCobradoParaCuenta(p) > 0;
   }
 
   /** Suma numérica de todos los pagos registrados en el historial de la unidad. */
@@ -252,26 +251,48 @@ export class DataService {
     );
   }
 
-  /** Deuda actual calculada: saldo inicial - pagos acumulados (nunca negativa). */
+  /**
+   * Deuda a la fecha:
+   * - Sin valor_cobrado en historial → valor inicial − pagos (al crear = valor inicial).
+   * - Con el primer valor_cobrado → Σ cobrado − Σ pagado (ya no usa el inicial).
+   */
   getDeudaActualParaCuenta(p: Cuenta): number {
-    return this.getDeudaDesdePagosAcumulados(p, this.getTotalPagadoParaCuenta(p));
+    const totalPagado = this.getTotalPagadoParaCuenta(p);
+    if (!this.hasValorCobradoEnHistorial(p)) {
+      return Math.max(0, this.getSaldoInicialParaCuenta(p) - totalPagado);
+    }
+    return Math.max(0, this.getSumaValorCobradoParaCuenta(p) - totalPagado);
   }
 
   /**
-   * Deuda para una fila del historial usando la misma base de la card:
-   * saldo inicial de la cuenta - pagos acumulados hasta ese movimiento.
+   * Deuda por fila del historial (misma regla que la card).
    */
   getDeudaParaHistorialPago(p: Cuenta, row: HistorialPago): number {
+    const useHistorialCobros = this.hasValorCobradoEnHistorial(p);
+    const saldoInicial = useHistorialCobros ? 0 : this.getSaldoInicialParaCuenta(p);
     const historial = this.getHistorialByCuenta(p.id);
     const ordered = historial.slice().sort((a, b) => this.compareHistorialParaSaldo(a, b));
+    let totalCobrado = 0;
     let totalPagado = 0;
 
     for (const h of ordered) {
+      totalCobrado += this.toMoneyNumber(h.valor_cobrado);
       totalPagado += this.toMoneyNumber(h.valor_pagado);
-      if (h.id === row.id) return this.getDeudaDesdePagosAcumulados(p, totalPagado);
+      if (h.id === row.id) {
+        if (useHistorialCobros) {
+          return Math.max(0, totalCobrado - totalPagado);
+        }
+        return Math.max(0, saldoInicial - totalPagado);
+      }
     }
 
-    return this.getDeudaDesdePagosAcumulados(p, this.toMoneyNumber(row.valor_pagado));
+    if (useHistorialCobros) {
+      return Math.max(
+        0,
+        this.toMoneyNumber(row.valor_cobrado) - this.toMoneyNumber(row.valor_pagado),
+      );
+    }
+    return Math.max(0, saldoInicial - this.toMoneyNumber(row.valor_pagado));
   }
 
   /** Fecha ISO `YYYY-MM-DD` o vacío → texto corto es-CO o em dash. */
@@ -288,16 +309,38 @@ export class DataService {
     });
   }
 
-  /** Día y hora simple en es-CO. Si la fecha es solo `YYYY-MM-DD`, usa `fallbackIso` para la hora. */
+  /** Día y hora simple en es-CO. Si la fecha es solo `YYYY-MM-DD`, conserva ese día y toma la hora del fallback. */
   formatFechaHora(isoDate: string | null | undefined, fallbackIso?: string | null | undefined): string {
     if (isoDate == null || String(isoDate).trim() === '') return '—';
     const raw = String(isoDate).trim();
-    const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(raw.slice(0, 10));
+    const ymd = raw.slice(0, 10);
+    const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(ymd);
     const hasExplicitTime = raw.includes('T') && !/T00:00:00(\.000)?Z?$/.test(raw);
-    const timeSource =
-      dateOnly && !hasExplicitTime && fallbackIso?.trim() ? fallbackIso.trim() : raw;
 
-    const parsed = Date.parse(timeSource);
+    if (dateOnly && !hasExplicitTime) {
+      const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd);
+      if (!m) return '—';
+      let hours = 0;
+      let minutes = 0;
+      if (fallbackIso?.trim()) {
+        const fb = Date.parse(fallbackIso.trim());
+        if (Number.isFinite(fb)) {
+          const t = new Date(fb);
+          hours = t.getHours();
+          minutes = t.getMinutes();
+        }
+      }
+      const local = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), hours, minutes);
+      return local.toLocaleString('es-CO', {
+        day: 'numeric',
+        month: 'numeric',
+        year: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+      });
+    }
+
+    const parsed = Date.parse(raw);
     if (!Number.isFinite(parsed)) return '—';
 
     return new Date(parsed).toLocaleString('es-CO', {
@@ -845,15 +888,28 @@ export class DataService {
       .sort((a, b) => this.gestionSortTime(b) - this.gestionSortTime(a));
   }
 
-  /** Timestamp para ordenar timeline: más reciente primero (fecha con hora, o created_at). */
+  /**
+   * Timestamp para ordenar timeline: más reciente primero.
+   * Con fecha solo-día usa el día elegido (no created_at), para que una trazabilidad
+   * con fecha antigua no aparezca como la más nueva al registrarla hoy.
+   */
   private gestionSortTime(g: Pick<Gestion, 'fecha' | 'created_at'>): number {
     const fechaRaw = String(g.fecha ?? '').trim();
     const createdRaw = String(g.created_at ?? '').trim();
-    const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(fechaRaw.slice(0, 10));
+    const ymd = fechaRaw.slice(0, 10);
+    const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(ymd);
     const hasExplicitTime = fechaRaw.includes('T') && !/T00:00:00(\.000)?Z?$/.test(fechaRaw);
-    const source =
-      dateOnly && !hasExplicitTime && createdRaw ? createdRaw : fechaRaw || createdRaw;
-    const parsed = Date.parse(source);
+
+    if (dateOnly && !hasExplicitTime) {
+      const base = Date.parse(`${ymd}T12:00:00`);
+      if (!Number.isFinite(base)) return 0;
+      const created = Date.parse(createdRaw);
+      // Desempate estable el mismo día: hora de creación (ms dentro del día).
+      const tie = Number.isFinite(created) ? created % 86_400_000 : 0;
+      return base + tie;
+    }
+
+    const parsed = Date.parse(fechaRaw || createdRaw);
     return Number.isFinite(parsed) ? parsed : 0;
   }
 
@@ -1050,6 +1106,7 @@ export class DataService {
       const { [cuentaId]: _removed, ...rest } = prev;
       return rest;
     });
+    this.clearSaldoInicialFijo(cuentaId);
     try {
       await this.loadCuentasByCliente(clienteId);
     } catch {
@@ -1287,8 +1344,104 @@ export class DataService {
     return copy;
   }
 
-  private getDeudaDesdePagosAcumulados(p: Cuenta, totalPagado: number): number {
-    return Math.max(0, this.getTotalCobradoParaCuenta(p) - totalPagado);
+  /**
+   * Saldo inicial preservado (lock / API). No se resta Σ valor_cobrado.
+   * Un lock en 0 (migración defectuosa) no tapa un saldo_inicial real del API.
+   * Las reparaciones de montos inflados solo corren si no hay lock positivo confiable.
+   */
+  private resolveSaldoInicialPreservado(p: Cuenta): number {
+    const restored = this.restoreSaldoInicialIfReducedByObsoleteMigration(p);
+    if (restored != null) return restored;
+
+    const lockedInicial = this.readSaldoInicialFijo(p.id);
+    // Lock positivo = valor preservado (edición del usuario o carga previa correcta).
+    if (lockedInicial != null && lockedInicial > 0) {
+      return lockedInicial;
+    }
+
+    const apiInicial =
+      p.saldo_inicial != null && Number.isFinite(Number(p.saldo_inicial))
+        ? Math.max(0, Number(p.saldo_inicial))
+        : null;
+
+    const montoBackend = Number.isFinite(Number(p.monto_a_la_fecha))
+      ? Math.max(0, Number(p.monto_a_la_fecha))
+      : 0;
+    const historial = this.getHistorialByCuenta(p.id);
+    const totalPagado = historial.reduce(
+      (sum, h) => sum + this.toMoneyNumber(h.valor_pagado),
+      0,
+    );
+
+    if (apiInicial != null) {
+      const safeInicial = apiInicial;
+      // Reparacion: el inicial quedo igual al monto inflado (deuda real + pagos).
+      if (totalPagado > 0 && montoBackend > 0 && safeInicial - montoBackend === totalPagado) {
+        this.writeSaldoInicialFijo(p.id, montoBackend);
+        return montoBackend;
+      }
+      const montoInfladoEnHistorial = historial.some(
+        (h) => this.toMoneyNumber(h.monto_a_la_fecha) === montoBackend,
+      );
+      if (
+        totalPagado > 0 &&
+        montoBackend > 0 &&
+        safeInicial === montoBackend &&
+        montoInfladoEnHistorial
+      ) {
+        const repairedInicial = Math.max(0, montoBackend - totalPagado);
+        this.writeSaldoInicialFijo(p.id, repairedInicial);
+        return repairedInicial;
+      }
+      this.writeSaldoInicialFijo(p.id, safeInicial);
+      return safeInicial;
+    }
+
+    const fallbackInicial = Math.max(0, montoBackend - totalPagado);
+    this.writeSaldoInicialFijo(p.id, fallbackInicial);
+    return fallbackInicial;
+  }
+
+  /**
+   * Recupera saldo inicial si el lock local quedó en 0 o reducido por la migración
+   * que restaba cobros, y el API aún trae el valor real.
+   */
+  private restoreSaldoInicialIfReducedByObsoleteMigration(p: Cuenta): number | null {
+    const storage = this.getLocalStorage();
+    const v2Key = `legal.cobradoModel.v2.${p.id}`;
+    const hadV2 = storage?.getItem(v2Key) === '1';
+    if (storage && hadV2) storage.removeItem(v2Key);
+
+    const locked = this.readSaldoInicialFijo(p.id);
+    const apiInicial = Number(p.saldo_inicial);
+    const apiPositive =
+      p.saldo_inicial != null && Number.isFinite(apiInicial) && Math.max(0, apiInicial) > 0
+        ? Math.max(0, apiInicial)
+        : null;
+
+    // Lock 0 siempre cede ante un saldo_inicial real del API.
+    if (locked === 0 && apiPositive != null) {
+      this.writeSaldoInicialFijo(p.id, apiPositive);
+      return apiPositive;
+    }
+
+    // Migración v2: el lock quedó por debajo del API.
+    if (hadV2 && locked != null && apiPositive != null && apiPositive > locked) {
+      this.writeSaldoInicialFijo(p.id, apiPositive);
+      return apiPositive;
+    }
+
+    if (locked === 0 && apiPositive == null) {
+      this.clearSaldoInicialFijo(p.id);
+    }
+    return null;
+  }
+
+  private clearSaldoInicialFijo(cuentaId: string): void {
+    const storage = this.getLocalStorage();
+    if (!storage) return;
+    storage.removeItem(this.saldoInicialStorageKey(cuentaId));
+    storage.removeItem(`legal.cobradoModel.v2.${cuentaId}`);
   }
 
   private compareHistorialParaSaldo(a: HistorialPago, b: HistorialPago): number {
@@ -1329,15 +1482,33 @@ export class DataService {
       deudores: mergeDeudoresPreferringComplete(cuenta.deudores, prev?.deudores),
     });
     const monto = Number(withDeudores.monto_a_la_fecha);
-    const saldoInicial = Number(withDeudores.saldo_inicial);
-    const lockedInicial = this.readSaldoInicialFijo(withDeudores.id);
-    const normalizedSaldoInicial = lockedInicial != null
-      ? lockedInicial
-      : prev?.saldo_inicial != null && Number.isFinite(Number(prev.saldo_inicial))
-        ? Math.max(0, Number(prev?.saldo_inicial))
-        : withDeudores.saldo_inicial != null && Number.isFinite(saldoInicial)
-          ? Math.max(0, saldoInicial)
-          : null;
+    const apiSaldo =
+      withDeudores.saldo_inicial != null && Number.isFinite(Number(withDeudores.saldo_inicial))
+        ? Math.max(0, Number(withDeudores.saldo_inicial))
+        : null;
+    const prevSaldo =
+      prev?.saldo_inicial != null && Number.isFinite(Number(prev.saldo_inicial))
+        ? Math.max(0, Number(prev.saldo_inicial))
+        : null;
+    const restored = this.restoreSaldoInicialIfReducedByObsoleteMigration(withDeudores);
+    const lockedInicial = restored ?? this.readSaldoInicialFijo(withDeudores.id);
+
+    // Preferir valores positivos: lock>0, luego API, luego prev. Lock 0 no tapa el API.
+    let normalizedSaldoInicial: number | null = null;
+    if (lockedInicial != null && lockedInicial > 0) {
+      normalizedSaldoInicial = lockedInicial;
+    } else if (apiSaldo != null && apiSaldo > 0) {
+      normalizedSaldoInicial = apiSaldo;
+    } else if (prevSaldo != null && prevSaldo > 0) {
+      normalizedSaldoInicial = prevSaldo;
+    } else if (apiSaldo != null) {
+      normalizedSaldoInicial = apiSaldo;
+    } else if (prevSaldo != null) {
+      normalizedSaldoInicial = prevSaldo;
+    } else if (lockedInicial != null) {
+      normalizedSaldoInicial = lockedInicial;
+    }
+
     if (normalizedSaldoInicial != null) this.writeSaldoInicialFijo(withDeudores.id, normalizedSaldoInicial);
     const fechas = {
       fecha_inicio_cobro: this.normalizeFechaYmd(withDeudores.fecha_inicio_cobro) ?? prev?.fecha_inicio_cobro ?? null,

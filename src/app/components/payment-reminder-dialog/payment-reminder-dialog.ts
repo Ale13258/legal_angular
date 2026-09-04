@@ -463,7 +463,7 @@ export class PaymentReminderDialog {
     const safe = this.sanitizer.sanitize(SecurityContext.HTML, html);
     return safe ? this.sanitizer.bypassSecurityTrustHtml(safe) : null;
   });
-  /** Misma lógica que "Deuda a la fecha" en el detalle: saldo − pagos (se actualiza con el historial). */
+  /** Misma lógica que "Deuda a la fecha" en el detalle: cobrado − pagado. */
   montoPendiente = computed(() =>
     this.data.getDeudaActualParaCuenta(this.cuenta())
   );

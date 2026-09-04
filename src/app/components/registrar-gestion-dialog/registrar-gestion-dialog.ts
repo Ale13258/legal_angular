@@ -131,7 +131,17 @@ export class RegistrarGestionDialog {
   }
 
   private fechaHoy(): string {
-    return new Date().toISOString().slice(0, 10);
+    // Misma zona que el resto del cobro (no UTC de toISOString).
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Bogota',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(new Date());
+    const year = parts.find((p) => p.type === 'year')?.value ?? '1970';
+    const month = parts.find((p) => p.type === 'month')?.value ?? '01';
+    const day = parts.find((p) => p.type === 'day')?.value ?? '01';
+    return `${year}-${month}-${day}`;
   }
 
   private resetForm(): void {

@@ -45,7 +45,11 @@ export interface Cuenta {
   identificador: string;
   direccion: string;
   notas: string;
-  /** Valor base de la deuda; editable para corregir inconsistencias. */
+  /**
+   * Valor inicial estático de la unidad (solo visualización).
+   * Deuda: sin cobros en historial = saldo_inicial; con el primer valor_cobrado =
+   * Σ valor_cobrado − Σ valor_pagado.
+   */
   saldo_inicial?: number | null;
   monto_a_la_fecha: number;
   created_at: string;

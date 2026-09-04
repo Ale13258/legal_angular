@@ -285,6 +285,13 @@ describe('DataService', () => {
     expect(formatted).toMatch(/\d/);
   });
 
+  it('formatFechaHora conserva el día viejo y no lo reemplaza por created_at', () => {
+    const formatted = service.formatFechaHora('2019-03-15', '2026-09-03T20:15:00.000Z');
+
+    expect(formatted).toContain('2019');
+    expect(formatted).not.toContain('2026');
+  });
+
   it('formatFechaPago usa fecha_pago y created_at del historial', () => {
     const formatted = service.formatFechaPago({
       fecha_pago: '2026-01-10',
@@ -324,7 +331,34 @@ describe('DataService', () => {
     expect(formatted).toMatch(/\d/);
   });
 
-  it('calcula la deuda del historial con la misma base de la card', async () => {
+  it('ordena trazabilidades por fecha elegida, no por created_at', async () => {
+    const cuentaId = 'prop-gest-sort';
+    const vieja: Gestion = {
+      id: 'g-vieja',
+      cuenta_id: cuentaId,
+      fecha: '2018-01-10',
+      estado: 'pendiente',
+      descripcion: 'Gestión antigua',
+      created_at: '2026-09-03T20:00:00.000Z',
+    };
+    const reciente: Gestion = {
+      id: 'g-reciente',
+      cuenta_id: cuentaId,
+      fecha: '2026-08-01',
+      estado: 'pendiente',
+      descripcion: 'Gestión reciente',
+      created_at: '2026-08-01T10:00:00.000Z',
+    };
+
+    const loadP = service.loadGestionesByCuenta(cuentaId);
+    httpMock.expectOne(apiUrl(`/cuentas/${cuentaId}/gestiones`)).flush([vieja, reciente]);
+    await loadP;
+
+    const ordered = service.getGestionesByCuenta(cuentaId);
+    expect(ordered.map((g) => g.id)).toEqual(['g-reciente', 'g-vieja']);
+  });
+
+  it('calcula la deuda del historial con cobros y pagos acumulados', async () => {
     const cuenta: Cuenta = {
       id: 'prop-1',
       cliente_id: 'cliente-1',
@@ -333,7 +367,7 @@ describe('DataService', () => {
       direccion: 'Calle 1',
       notas: '',
       ...sampleCobroCuenta,
-      saldo_inicial: 1000,
+      saldo_inicial: 999999,
       monto_a_la_fecha: 9999,
       created_at: '2026-01-01T00:00:00.000Z',
     };
@@ -342,7 +376,7 @@ describe('DataService', () => {
       cuenta_id: cuenta.id,
       periodo: '2026-01',
       concepto: 'administracion',
-      valor_cobrado: 0,
+      valor_cobrado: 1000,
       valor_pagado: 200,
       fecha_pago: '2026-01-10',
       estado_pago: 'parcial',
@@ -354,6 +388,7 @@ describe('DataService', () => {
       ...enero,
       id: 'hist-febrero',
       periodo: '2026-02',
+      valor_cobrado: 0,
       valor_pagado: 300,
       fecha_pago: '2026-02-10',
       created_at: '2026-02-10T00:00:00.000Z',
@@ -364,9 +399,104 @@ describe('DataService', () => {
     reqLoad.flush([febrero, enero]);
     await loadP;
 
+    // Con valor_cobrado en historial, el saldo_inicial no afecta la deuda.
+    expect(service.getSaldoInicialParaCuenta(cuenta)).toBe(999999);
     expect(service.getDeudaParaHistorialPago(cuenta, enero)).toBe(800);
     expect(service.getDeudaParaHistorialPago(cuenta, febrero)).toBe(500);
     expect(service.getDeudaActualParaCuenta(cuenta)).toBe(500);
+  });
+
+  it('sin valor_cobrado la deuda es el valor inicial; con el primero usa solo el historial', async () => {
+    const cuenta: Cuenta = {
+      id: 'prop-cobros',
+      cliente_id: 'cliente-1',
+      tipo_cuenta: 'apartamento',
+      identificador: 'Apto Cobros',
+      direccion: 'Calle Cobros',
+      notas: '',
+      ...sampleCobroCuenta,
+      saldo_inicial: 17769849,
+      monto_a_la_fecha: 17769849,
+      created_at: '2026-01-01T00:00:00.000Z',
+    };
+
+    service['cuentasSignal'].set([cuenta]);
+    service['historialByCuentaSignal'].set({ [cuenta.id]: [] });
+
+    expect(service.getSaldoInicialParaCuenta(cuenta)).toBe(17769849);
+    expect(service.getTotalCobradoParaCuenta(cuenta)).toBe(17769849);
+    expect(service.getDeudaActualParaCuenta(cuenta)).toBe(17769849);
+
+    const cuota: HistorialPago = {
+      id: 'hist-cuota',
+      cuenta_id: cuenta.id,
+      periodo: '2026-02',
+      concepto: 'administracion',
+      valor_cobrado: 50000,
+      valor_pagado: 0,
+      fecha_pago: '2026-02-10',
+      estado_pago: 'pendiente',
+      monto_a_la_fecha: 50000,
+      observaciones: '',
+      created_at: '2026-02-10T00:00:00.000Z',
+    };
+    const abono: HistorialPago = {
+      ...cuota,
+      id: 'hist-abono',
+      periodo: '2026-03',
+      valor_cobrado: 0,
+      valor_pagado: 20000,
+      fecha_pago: '2026-03-10',
+      estado_pago: 'parcial',
+      created_at: '2026-03-10T00:00:00.000Z',
+    };
+
+    const loadP = service.loadHistorialByCuenta(cuenta.id);
+    httpMock.expectOne(apiUrl(`/cuentas/${cuenta.id}/historial`)).flush([cuota, abono]);
+    await loadP;
+
+    expect(service.getSaldoInicialParaCuenta(cuenta)).toBe(17769849);
+    expect(service.getTotalCobradoParaCuenta(cuenta)).toBe(50000);
+    expect(service.getDeudaParaHistorialPago(cuenta, cuota)).toBe(50000);
+    expect(service.getDeudaParaHistorialPago(cuenta, abono)).toBe(30000);
+    expect(service.getDeudaActualParaCuenta(cuenta)).toBe(30000);
+  });
+
+  it('preserva el saldo inicial sin sumarlo cuando ya hay valor_cobrado', async () => {
+    const cuenta: Cuenta = {
+      id: 'prop-preserve-inicial',
+      cliente_id: 'cliente-1',
+      tipo_cuenta: 'apartamento',
+      identificador: 'Apto Preserve Inicial',
+      direccion: 'Calle Preserve Inicial',
+      notas: '',
+      ...sampleCobroCuenta,
+      saldo_inicial: 100000,
+      monto_a_la_fecha: 100000,
+      created_at: '2026-01-01T00:00:00.000Z',
+    };
+    const pago: HistorialPago = {
+      id: 'hist-preserve-inicial',
+      cuenta_id: cuenta.id,
+      periodo: '2026-01',
+      concepto: 'administracion',
+      valor_cobrado: 90000,
+      valor_pagado: 30000,
+      fecha_pago: '2026-01-10',
+      estado_pago: 'parcial',
+      monto_a_la_fecha: 70000,
+      observaciones: '',
+      created_at: '2026-01-10T00:00:00.000Z',
+    };
+
+    service['cuentasSignal'].set([cuenta]);
+    const loadP = service.loadHistorialByCuenta(cuenta.id);
+    httpMock.expectOne(apiUrl(`/cuentas/${cuenta.id}/historial`)).flush([pago]);
+    await loadP;
+
+    expect(service.getSaldoInicialParaCuenta(cuenta)).toBe(100000);
+    expect(service.getTotalCobradoParaCuenta(cuenta)).toBe(90000);
+    expect(service.getDeudaActualParaCuenta(cuenta)).toBe(60000);
   });
 
   it('should get total cartera', () => {
@@ -400,7 +530,7 @@ describe('DataService', () => {
       cuenta_id: propA.id,
       periodo: '2026-01',
       concepto: 'administracion',
-      valor_cobrado: 0,
+      valor_cobrado: 1000,
       valor_pagado: 250,
       fecha_pago: '2026-01-10',
       estado_pago: 'parcial',
@@ -412,6 +542,7 @@ describe('DataService', () => {
       ...histA,
       id: 'hist-b',
       cuenta_id: propB.id,
+      valor_cobrado: 2000,
       valor_pagado: 750,
     };
 
@@ -425,6 +556,7 @@ describe('DataService', () => {
     httpMock.expectOne(apiUrl(`/cuentas/${propB.id}/historial`)).flush([histB]);
     await loadHistP;
 
+    // (1000-250) + (2000-750) = 2000; saldo_inicial no cuenta.
     expect(service.getTotalCartera()).toBe(2000);
   });
 
@@ -482,8 +614,9 @@ describe('DataService', () => {
 
     const actual = service.getCuentaById(cuenta.id);
     expect(actual?.saldo_inicial).toBe(100000);
-    expect(actual ? service.getTotalCobradoParaCuenta(actual) : 0).toBe(100000);
-    expect(actual ? service.getDeudaActualParaCuenta(actual) : 0).toBe(70000);
+    expect(actual ? service.getSaldoInicialParaCuenta(actual) : 0).toBe(100000);
+    expect(actual ? service.getTotalCobradoParaCuenta(actual) : 0).toBe(90000);
+    expect(actual ? service.getDeudaActualParaCuenta(actual) : 0).toBe(60000);
   });
 
   it('recupera el saldo inicial desde el detalle para la vista cliente', async () => {
@@ -532,7 +665,8 @@ describe('DataService', () => {
 
     const actual = service.getCuentaById(propiedadListado.id);
     expect(actual?.saldo_inicial).toBe(100000);
-    expect(actual ? service.getDeudaActualParaCuenta(actual) : 0).toBe(70000);
+    expect(actual ? service.getSaldoInicialParaCuenta(actual) : 0).toBe(100000);
+    expect(actual ? service.getDeudaActualParaCuenta(actual) : 0).toBe(60000);
   });
 
   it('deduce valor inicial legacy como monto backend menos pagos', async () => {
@@ -569,8 +703,9 @@ describe('DataService', () => {
     httpMock.expectOne(apiUrl(`/cuentas/${cuenta.id}/historial`)).flush([pago]);
     await loadHistorialP;
 
-    expect(service.getTotalCobradoParaCuenta(loaded)).toBe(100000);
-    expect(service.getDeudaActualParaCuenta(loaded)).toBe(70000);
+    expect(service.getSaldoInicialParaCuenta(loaded)).toBe(100000);
+    expect(service.getTotalCobradoParaCuenta(loaded)).toBe(90000);
+    expect(service.getDeudaActualParaCuenta(loaded)).toBe(60000);
   });
 
   it('repara saldo inicial inflado por el bug anterior', async () => {
@@ -610,8 +745,9 @@ describe('DataService', () => {
 
     // Simula datos legacy sin lock (el load habría fijado el valor inflado).
     globalThis.localStorage.removeItem(`legal.saldoInicial.${cuenta.id}`);
-    expect(service.getTotalCobradoParaCuenta(loaded)).toBe(100000);
-    expect(service.getDeudaActualParaCuenta(loaded)).toBe(70000);
+    expect(service.getSaldoInicialParaCuenta(loaded)).toBe(100000);
+    expect(service.getTotalCobradoParaCuenta(loaded)).toBe(90000);
+    expect(service.getDeudaActualParaCuenta(loaded)).toBe(60000);
   });
 
   it('repara saldo inicial cuando quedo como deuda real mas pagos', async () => {
@@ -650,8 +786,9 @@ describe('DataService', () => {
     await loadHistorialP;
 
     globalThis.localStorage.removeItem(`legal.saldoInicial.${cuenta.id}`);
-    expect(service.getTotalCobradoParaCuenta(loaded)).toBe(100000);
-    expect(service.getDeudaActualParaCuenta(loaded)).toBe(70000);
+    expect(service.getSaldoInicialParaCuenta(loaded)).toBe(100000);
+    expect(service.getTotalCobradoParaCuenta(loaded)).toBe(90000);
+    expect(service.getDeudaActualParaCuenta(loaded)).toBe(60000);
   });
 
   it('updateProcesoLegal should reload client cuentas after PATCH so UI reflects server state', async () => {
@@ -782,7 +919,7 @@ describe('DataService', () => {
     expect(service.getGestionesByCuenta(cuentaId)).toEqual([]);
   });
 
-  it('updateCuenta actualiza el saldo inicial y recalcula la deuda', async () => {
+  it('updateCuenta actualiza el saldo inicial sin cambiar la deuda (solo cobros/pagos)', async () => {
     const cuenta: Cuenta = {
       id: 'prop-edit-saldo',
       cliente_id: 'cliente-1',
@@ -800,7 +937,7 @@ describe('DataService', () => {
       cuenta_id: cuenta.id,
       periodo: '2026-01',
       concepto: 'administracion',
-      valor_cobrado: 0,
+      valor_cobrado: 90000,
       valor_pagado: 30000,
       fecha_pago: '2026-01-10',
       estado_pago: 'parcial',
@@ -811,7 +948,7 @@ describe('DataService', () => {
 
     service['cuentasSignal'].set([cuenta]);
     service['historialByCuentaSignal'].set({ [cuenta.id]: [pago] });
-    expect(service.getDeudaActualParaCuenta(cuenta)).toBe(70000);
+    expect(service.getDeudaActualParaCuenta(cuenta)).toBe(60000);
 
     const updateP = service.updateCuenta(cuenta.id, { saldo_inicial: 80000 });
     const reqPatch = httpMock.expectOne(apiUrl(`/cuentas/${cuenta.id}`));
@@ -825,8 +962,107 @@ describe('DataService', () => {
     const updated = await updateP;
 
     expect(updated.saldo_inicial).toBe(80000);
-    expect(service.getTotalCobradoParaCuenta(updated)).toBe(80000);
-    expect(service.getDeudaActualParaCuenta(updated)).toBe(50000);
+    expect(service.getSaldoInicialParaCuenta(updated)).toBe(80000);
+    expect(service.getTotalCobradoParaCuenta(updated)).toBe(90000);
+    expect(service.getDeudaActualParaCuenta(updated)).toBe(60000);
+  });
+
+  it('updateCuenta cambia solo el valor inicial; deuda sigue siendo cobrado − pagado', async () => {
+    const cuenta: Cuenta = {
+      id: 'prop-edit-apertura',
+      cliente_id: 'cliente-1',
+      tipo_cuenta: 'apartamento',
+      identificador: 'Apto Apertura',
+      direccion: 'Calle Apertura',
+      notas: '',
+      ...sampleCobroCuenta,
+      saldo_inicial: 10000,
+      monto_a_la_fecha: 100000,
+      created_at: '2026-01-01T00:00:00.000Z',
+    };
+    const pago: HistorialPago = {
+      id: 'hist-edit-apertura',
+      cuenta_id: cuenta.id,
+      periodo: '2026-01',
+      concepto: 'administracion',
+      valor_cobrado: 90000,
+      valor_pagado: 30000,
+      fecha_pago: '2026-01-10',
+      estado_pago: 'parcial',
+      monto_a_la_fecha: 70000,
+      observaciones: '',
+      created_at: '2026-01-10T00:00:00.000Z',
+    };
+
+    globalThis.localStorage.setItem(`legal.saldoInicial.${cuenta.id}`, '10000');
+    service['cuentasSignal'].set([cuenta]);
+    service['historialByCuentaSignal'].set({ [cuenta.id]: [pago] });
+    expect(service.getSaldoInicialParaCuenta(cuenta)).toBe(10000);
+    expect(service.getTotalCobradoParaCuenta(cuenta)).toBe(90000);
+    expect(service.getDeudaActualParaCuenta(cuenta)).toBe(60000);
+
+    const updateP = service.updateCuenta(cuenta.id, { saldo_inicial: 20000 });
+    httpMock.expectOne(apiUrl(`/cuentas/${cuenta.id}`)).flush({
+      ...cuenta,
+      saldo_inicial: 20000,
+      monto_a_la_fecha: 80000,
+    });
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    httpMock
+      .expectOne(apiUrl(`/clientes/${cuenta.cliente_id}/cuentas`))
+      .flush([{ ...cuenta, saldo_inicial: 20000, monto_a_la_fecha: 80000 }]);
+    const updated = await updateP;
+
+    expect(service.getSaldoInicialParaCuenta(updated)).toBe(20000);
+    expect(service.getTotalCobradoParaCuenta(updated)).toBe(90000);
+    expect(service.getDeudaActualParaCuenta(updated)).toBe(60000);
+  });
+
+  it('restaura saldo inicial si una migración v2 obsoleta lo había reducido', async () => {
+    const cuenta: Cuenta = {
+      id: 'prop-restore-v2',
+      cliente_id: 'cliente-1',
+      tipo_cuenta: 'apartamento',
+      identificador: 'Apto Restore',
+      direccion: 'Calle Restore',
+      notas: '',
+      ...sampleCobroCuenta,
+      saldo_inicial: 100000,
+      monto_a_la_fecha: 100000,
+      created_at: '2026-01-01T00:00:00.000Z',
+    };
+    globalThis.localStorage.setItem(`legal.saldoInicial.${cuenta.id}`, '10000');
+    globalThis.localStorage.setItem(`legal.cobradoModel.v2.${cuenta.id}`, '1');
+
+    const loadP = service.loadCuenta(cuenta.id);
+    httpMock.expectOne(apiUrl(`/cuentas/${cuenta.id}`)).flush(cuenta);
+    const loaded = await loadP;
+
+    expect(service.getSaldoInicialParaCuenta(loaded)).toBe(100000);
+    expect(globalThis.localStorage.getItem(`legal.cobradoModel.v2.${cuenta.id}`)).toBeNull();
+  });
+
+  it('no deja que un lock en 0 tape el saldo_inicial real del API', async () => {
+    const cuenta: Cuenta = {
+      id: 'prop-lock-cero',
+      cliente_id: 'cliente-1',
+      tipo_cuenta: 'apartamento',
+      identificador: 'Apto 1901',
+      direccion: 'Pie del cerro',
+      notas: '',
+      ...sampleCobroCuenta,
+      saldo_inicial: 7543230,
+      monto_a_la_fecha: 10226619,
+      created_at: '2025-03-01T00:00:00.000Z',
+    };
+    globalThis.localStorage.setItem(`legal.saldoInicial.${cuenta.id}`, '0');
+
+    const loadP = service.loadCuenta(cuenta.id);
+    httpMock.expectOne(apiUrl(`/cuentas/${cuenta.id}`)).flush(cuenta);
+    const loaded = await loadP;
+
+    expect(service.getSaldoInicialParaCuenta(loaded)).toBe(7543230);
+    expect(loaded.saldo_inicial).toBe(7543230);
   });
 
   it('createCuenta envía deudores y normaliza espejo cobro_*', async () => {

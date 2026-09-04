@@ -132,7 +132,7 @@ import { fadeInUp, fadeInUpStagger } from '../../core/animations/animations';
                         </div>
                       </td>
                       <td class="px-4 sm:px-6 py-3 text-right font-mono text-sm">
-                        {{ data.formatCurrency(data.getTotalCobradoParaCuenta(p)) }}
+                        {{ data.formatCurrency(data.getSaldoInicialParaCuenta(p)) }}
                       </td>
                       <td class="px-4 sm:px-6 py-3 text-right font-mono text-sm font-semibold text-foreground">
                         {{ data.formatDeuda(data.getDeudaActualParaCuenta(p)) }}
