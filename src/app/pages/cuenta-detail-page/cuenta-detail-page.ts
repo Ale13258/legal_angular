@@ -11,8 +11,13 @@ import { RegistrarGestionDialog } from '../../components/registrar-gestion-dialo
 import { AgregarRegistroDialog } from '../../components/agregar-registro-dialog/agregar-registro-dialog';
 import { fadeInFromLeft, fadeInUpStagger } from '../../core/animations/animations';
 import type { ChartConfiguration } from 'chart.js';
-import type { EstadoCuentaFile, Gestion, HistorialPago } from '../../core/models';
+import type { EstadoCuentaFile, Gestion, HistorialPago, PaymentReminderEmailRecord } from '../../core/models';
 import { resolveDeudores } from '../../core/utils/normalize-cuenta-deudores';
+import {
+  DEFAULT_REMINDER_SUBJECT,
+  extractReminderLetterHtml,
+  type PaymentReminderComposeDraft,
+} from '../../core/utils/payment-reminder-legal-body';
 
 @Component({
   selector: 'app-cuenta-detail-page',
@@ -83,7 +88,7 @@ import { resolveDeudores } from '../../core/utils/normalize-cuenta-deudores';
             </div>
             <button
               type="button"
-              (click)="reminderOpen.set(true)"
+              (click)="openPaymentReminder()"
               class="inline-flex items-center gap-2 rounded-xl bg-primary text-primary-foreground px-4 py-2 text-sm font-medium hover:opacity-90 transition-opacity mb-4"
             >
               <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
@@ -322,7 +327,8 @@ import { resolveDeudores } from '../../core/utils/normalize-cuenta-deudores';
           <app-payment-reminder-dialog
             [open]="true"
             [cuenta]="cuenta()!"
-            (openChange)="reminderOpen.set($event)"
+            [draft]="reminderDraft()"
+            (openChange)="onReminderOpenChange($event)"
             (sent)="onReminderSent()"
           />
         }
@@ -331,6 +337,7 @@ import { resolveDeudores } from '../../core/utils/normalize-cuenta-deudores';
             [open]="true"
             [reminderId]="emailReminderId()!"
             (openChange)="onEmailReminderDetailOpenChange($event)"
+            (reenviar)="onReenviarRecordatorio($event)"
           />
         }
         @if (gestionOpen()) {
@@ -442,6 +449,7 @@ export class CuentaDetailPage {
   @ViewChild('estadoCuentaFileInput') private estadoCuentaFileInput?: ElementRef<HTMLInputElement>;
   reportOpen = signal(false);
   reminderOpen = signal(false);
+  reminderDraft = signal<PaymentReminderComposeDraft | null>(null);
   emailReminderDetailOpen = signal(false);
   emailReminderId = signal<string | null>(null);
   gestionOpen = signal(false);
@@ -579,6 +587,28 @@ export class CuentaDetailPage {
     }
     this.emailReminderId.set(gestionId);
     this.emailReminderDetailOpen.set(true);
+  }
+
+  openPaymentReminder(): void {
+    this.reminderDraft.set(null);
+    this.reminderOpen.set(true);
+  }
+
+  onReminderOpenChange(open: boolean): void {
+    this.reminderOpen.set(open);
+    if (!open) {
+      this.reminderDraft.set(null);
+    }
+  }
+
+  onReenviarRecordatorio(record: PaymentReminderEmailRecord): void {
+    this.emailReminderDetailOpen.set(false);
+    this.emailReminderId.set(null);
+    this.reminderDraft.set({
+      subject: record.subject?.trim() || DEFAULT_REMINDER_SUBJECT,
+      cuerpoHtml: extractReminderLetterHtml(record.body_html, record.body_text),
+    });
+    this.reminderOpen.set(true);
   }
 
   onEmailReminderDetailOpenChange(open: boolean): void {
