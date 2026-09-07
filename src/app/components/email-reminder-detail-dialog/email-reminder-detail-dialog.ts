@@ -88,11 +88,19 @@ import type { PaymentReminderEmailRecord } from '../../core/models';
           }
         </div>
 
-        <div class="shrink-0 border-t border-border px-5 sm:px-6 py-4">
+        <div class="shrink-0 border-t border-border px-5 sm:px-6 py-4 flex flex-col sm:flex-row gap-2">
+          <button
+            type="button"
+            (click)="onReenviar()"
+            [disabled]="!canResend()"
+            class="w-full rounded-xl bg-primary text-primary-foreground px-4 py-2.5 text-sm font-medium hover:opacity-90 disabled:opacity-50 disabled:pointer-events-none"
+          >
+            Reenviar
+          </button>
           <button
             type="button"
             (click)="openChange.emit(false)"
-            class="w-full rounded-xl bg-primary text-primary-foreground px-4 py-2.5 text-sm font-medium hover:opacity-90"
+            class="w-full rounded-xl border border-border px-4 py-2.5 text-sm font-medium text-foreground hover:bg-muted"
           >
             Cerrar
           </button>
@@ -106,6 +114,7 @@ export class EmailReminderDetailDialog {
   /** Id de la gestión para `GET /payment-reminders/:gestionId`. */
   reminderId = input.required<string>();
   openChange = output<boolean>();
+  reenviar = output<PaymentReminderEmailRecord>();
 
   protected readonly data = inject(DataService);
 
@@ -144,6 +153,18 @@ export class EmailReminderDetailDialog {
     if (text) return text;
     return 'Sin contenido de mensaje.';
   });
+
+  readonly canResend = computed(() => {
+    const r = this.record();
+    if (!r || this.loading() || this.error()) return false;
+    return Boolean(r.subject?.trim() || r.body_html?.trim() || r.body_text?.trim());
+  });
+
+  onReenviar(): void {
+    const record = this.record();
+    if (!record || !this.canResend()) return;
+    this.reenviar.emit(record);
+  }
 
   constructor() {
     effect(() => {

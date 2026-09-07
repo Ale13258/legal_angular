@@ -17,11 +17,13 @@ import { QuillEditorComponent, type QuillModules } from 'ngx-quill';
 import type QuillType from 'quill';
 import { DataService, type PaymentReminderEmailAttachmentPayload } from '../../core/services/data.service';
 import type { Cuenta } from '../../core/models';
+import { collectCuentaEmails, formatNombresDeudores } from '../../core/utils/normalize-cuenta-deudores';
 import {
-  collectCuentaEmails,
-  formatNombresDeudores,
-  saludoEstimadoDeudores,
-} from '../../core/utils/normalize-cuenta-deudores';
+  buildLegalReminderBodyHtml,
+  DEFAULT_REMINDER_SUBJECT,
+  REMINDER_LETTER_BODY_ID,
+  type PaymentReminderComposeDraft,
+} from '../../core/utils/payment-reminder-legal-body';
 import {
   isEmptyQuillHtml,
   quillHtmlToPlainText,
@@ -49,15 +51,10 @@ const REMINDER_CONTACT = {
   ],
 } as const;
 
-const TEXTO_INQUIETUDES = `Cualquier inquietud al respecto será atendida en el teléfono ${REMINDER_CONTACT.phoneDisplay} y los correos: ${REMINDER_CONTACT.emails[0]} y ${REMINDER_CONTACT.emails[1]}.`;
-
 const INSTAGRAM_URL =
   'https://www.instagram.com/legaltechabogadosdigitales?igsh=MTFjOWVnbGsxYm85aw%3D%3D';
 
 const MAX_EXTRA_RECIPIENTS = 5;
-
-/** Borrador del cuerpo Quill por cuenta (solo tras envío exitoso). */
-const CUERPO_TEMPLATE_STORAGE_PREFIX = 'legal.paymentReminder.cuerpoHtml.';
 
 type ReminderAttachment = {
   id: string;
@@ -202,28 +199,9 @@ type ReminderAttachment = {
               </div>
 
               <div class="px-7 py-6 text-[14px] text-[#333] font-[Arial,Helvetica,sans-serif] leading-snug">
-                <p class="mb-2 text-justify">{{ saludoDestinatario() }} <strong>{{ nombreDestinatario() }}</strong>,</p>
-
                 @if (cuerpoPreviewHtml(); as preview) {
                   <div class="reminder-body-preview mb-2 text-[#333] leading-snug" [innerHTML]="preview"></div>
                 }
-
-                <p class="mb-2 text-sm text-[#666] text-justify">
-                  Si ya realizó el pago, por favor haga caso omiso de esta comunicación y envíenos el soporte respectivo.
-                </p>
-                <p class="mb-2 text-sm text-[#666]">
-                  Cualquier inquietud al respecto será atendida en el teléfono
-                  <a href="tel:+573027636712" class="text-[#611374] underline">{{ reminderContact.phoneDisplay }}</a>
-                  y los correos:
-                  <a href="mailto:analistalegal@abogadosdigitales.com.co" class="text-[#611374] underline break-all">{{ reminderContact.emails[0] }}</a>
-                  y
-                  <a href="mailto:abogadojunior@abogadosdigitales.com.co" class="text-[#611374] underline break-all">{{ reminderContact.emails[1] }}</a>.
-                </p>
-                <p class="text-[#333]">
-                  Cordialmente,<br />
-                  <strong>Departamento de Cartera</strong><br />
-                  LegalTech
-                </p>
               </div>
 
               <div class="text-white overflow-hidden" style="background-color:#611374;">
@@ -383,6 +361,8 @@ type ReminderAttachment = {
 export class PaymentReminderDialog {
   open = input<boolean>(true);
   cuenta = input.required<Cuenta>();
+  /** Si viene de un reenvío, asunto y cuerpo de esa gestión. */
+  draft = input<PaymentReminderComposeDraft | null>(null);
   openChange = output<boolean>();
   /** Emitido cuando el backend confirma `status === 'sent'` (la gestión la crea el servidor). */
   sent = output<void>();
@@ -451,12 +431,6 @@ export class PaymentReminderDialog {
   footerYear = new Date().getFullYear();
 
   nombreDestinatario = computed(() => formatNombresDeudores(this.cuenta()));
-  saludoDestinatario = computed(() => saludoEstimadoDeudores(this.cuenta()));
-  nombreCopropiedad = computed(() => {
-    const p = this.cuenta();
-    const cliente = this.data.getClienteById(p.cliente_id);
-    return cliente?.nombre?.trim() || p.direccion?.trim() || '—';
-  });
   cuerpoPreviewHtml = computed((): SafeHtml | null => {
     const html = this.cuerpoPersonalizado();
     if (isEmptyQuillHtml(html)) return null;
@@ -489,9 +463,11 @@ export class PaymentReminderDialog {
         return;
       }
       const p = this.cuenta();
+      const draft = this.draft();
       const emails = collectCuentaEmails(p);
       const emailsKey = emails.join('|').toLowerCase();
-      const key = `${p.id}:${emailsKey}`;
+      const draftKey = draft?.cuerpoHtml?.trim() ? `draft:${draft.subject}` : 'template';
+      const key = `${p.id}:${emailsKey}:${draftKey}`;
       if (this.lastSyncedCuentaKey === key) return;
       this.lastSyncedCuentaKey = key;
 
@@ -505,46 +481,23 @@ export class PaymentReminderDialog {
         const el = this.destInput()?.nativeElement;
         if (el) el.value = campo;
       });
-      this.asunto.set(`Recordatorio de pago - ${p.identificador}`);
+      this.asunto.set(draft?.subject?.trim() || DEFAULT_REMINDER_SUBJECT);
       this.destinatarioExtraError.set(null);
-      const savedCuerpo = this.loadCuerpoTemplate(p.id);
-      this.cuerpoNgModel = savedCuerpo;
-      this.cuerpoPersonalizado.set(savedCuerpo);
+      const cuerpo = draft?.cuerpoHtml?.trim()
+        ? draft.cuerpoHtml
+        : buildLegalReminderBodyHtml({
+            identificador: p.identificador,
+            montoPendiente: this.montoPendiente(),
+            phoneDisplay: REMINDER_CONTACT.phoneDisplay,
+            emails: REMINDER_CONTACT.emails,
+          });
+      this.cuerpoNgModel = cuerpo;
+      this.cuerpoPersonalizado.set(cuerpo);
       this.adjuntos.set([]);
       this.adjuntoError.set(null);
       this.sendError.set(null);
       this.sendSuccess.set(null);
     });
-  }
-
-  private cuerpoTemplateStorageKey(cuentaId: string): string {
-    return `${CUERPO_TEMPLATE_STORAGE_PREFIX}${cuentaId}`;
-  }
-
-  /** Último cuerpo Quill enviado con éxito para esta cuenta (mismo navegador). */
-  private loadCuerpoTemplate(cuentaId: string): string {
-    if (typeof globalThis.localStorage === 'undefined') return '';
-    try {
-      const raw = globalThis.localStorage.getItem(this.cuerpoTemplateStorageKey(cuentaId));
-      if (!raw || isEmptyQuillHtml(raw)) return '';
-      return raw;
-    } catch {
-      return '';
-    }
-  }
-
-  private saveCuerpoTemplate(cuentaId: string, html: string): void {
-    if (typeof globalThis.localStorage === 'undefined') return;
-    const key = this.cuerpoTemplateStorageKey(cuentaId);
-    try {
-      if (isEmptyQuillHtml(html)) {
-        globalThis.localStorage.removeItem(key);
-        return;
-      }
-      globalThis.localStorage.setItem(key, html);
-    } catch {
-      // Cuota llena o almacenamiento bloqueado: el envío ya ocurrió; no bloquear UX.
-    }
   }
 
   onDestinatariosInput(event: Event): void {
@@ -661,7 +614,6 @@ export class PaymentReminderDialog {
         attachments: this.adjuntosPayload(),
       });
       if (result.status === 'sent') {
-        this.saveCuerpoTemplate(this.cuenta().id, this.cuerpoPersonalizado());
         const extrasEcho = result.extra_recipients?.length ? result.extra_recipients : extras;
         this.sendSuccess.set(
           extrasEcho.length
@@ -698,18 +650,7 @@ export class PaymentReminderDialog {
   }
 
   private cuerpoTexto(): string {
-    const cuerpo = quillHtmlToPlainText(this.cuerpoPersonalizado());
-    const bloques = [
-      `${this.saludoDestinatario()} ${this.nombreDestinatario()},`,
-      ...(cuerpo ? ['', cuerpo, ''] : ['']),
-      'Si ya realizó el pago, por favor haga caso omiso de esta comunicación y envíenos el soporte respectivo.',
-      TEXTO_INQUIETUDES,
-      '',
-      'Cordialmente,',
-      'Departamento de Cartera',
-      'LegalTech',
-    ];
-    return bloques.join('\n');
+    return quillHtmlToPlainText(this.cuerpoPersonalizado());
   }
 
   async onAdjuntosSeleccionados(event: Event): Promise<void> {
@@ -803,15 +744,12 @@ export class PaymentReminderDialog {
   }
 
   private generarHtml(): string {
-    const p = this.cuenta();
-    const cliente = this.escapeHtmlLite(this.nombreDestinatario());
-    const identificador = this.escapeHtmlLite(p.identificador);
     const fecha = this.escapeHtmlLite(this.fecha);
     const cuerpoHtml = this.cuerpoParrafosHtml();
-    const inquietudesHtml = this.buildInquietudesHtml();
     const logoCid = `cid:${REMINDER_EMAIL_CID.logo}`;
     const header = this.buildEmailHeaderHtml(logoCid, fecha);
     const footer = this.buildFooterHtmlSnippet(logoCid);
+    const title = this.escapeHtmlLite(this.asunto().trim() || DEFAULT_REMINDER_SUBJECT);
 
     return `<!DOCTYPE html>
 <html lang="es" xmlns="http://www.w3.org/1999/xhtml">
@@ -819,7 +757,7 @@ export class PaymentReminderDialog {
   <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="x-apple-disable-message-reformatting" />
-  <title>Recordatorio de pago - ${identificador}</title>
+  <title>${title}</title>
 </head>
 <body style="margin:0;padding:0;width:100%;background-color:#ececec;-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%;">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#ececec" style="background-color:#ececec;border-collapse:collapse;">
@@ -829,11 +767,7 @@ export class PaymentReminderDialog {
           <tr><td>${header}</td></tr>
           <tr>
             <td style="padding:24px 28px 8px;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.6;color:#333333;">
-              <p style="margin:0 0 8px;font-size:15px;color:#333333;text-align:justify;">${this.escapeHtmlLite(this.saludoDestinatario())} <strong>${cliente}</strong>,</p>
-              ${cuerpoHtml}
-              <p style="margin:0 0 8px;font-size:14px;color:#666666;text-align:justify;">Si ya realizó el pago, por favor haga caso omiso de esta comunicación y envíenos el soporte respectivo.</p>
-              <p style="margin:0 0 12px;font-size:14px;color:#666666;text-align:justify;">${inquietudesHtml}</p>
-              <p style="margin:0;font-size:15px;color:#333333;">Cordialmente,<br><strong>Departamento de Cartera</strong><br>LegalTech</p>
+              <div id="${REMINDER_LETTER_BODY_ID}">${cuerpoHtml}</div>
             </td>
           </tr>
           <tr><td>${footer}</td></tr>
@@ -867,17 +801,6 @@ export class PaymentReminderDialog {
         </td>
       </tr>
     </table>`;
-  }
-
-  private buildInquietudesHtml(): string {
-    const phone = `<a href="tel:${REMINDER_CONTACT.phoneTel}" style="color:#611374;text-decoration:underline;">${REMINDER_CONTACT.phoneDisplay}</a>`;
-    const emailLinks = REMINDER_CONTACT.emails
-      .map(
-        (email) =>
-          `<a href="mailto:${email}" style="color:#611374;text-decoration:underline;">${this.escapeHtmlLite(email)}</a>`,
-      )
-      .join(' y ');
-    return `Cualquier inquietud al respecto será atendida en el teléfono ${phone} y los correos: ${emailLinks}.`;
   }
 
   private buildFooterHtmlSnippet(logoCid: string): string {
