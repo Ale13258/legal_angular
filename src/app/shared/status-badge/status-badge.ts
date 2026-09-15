@@ -46,6 +46,11 @@ export class StatusBadge {
       otro: 'bg-muted text-muted-foreground',
       /** Cliente sin fila de cuenta en cartera (dashboard) */
       sin_cuenta: 'border border-dashed border-border bg-secondary/40 text-muted-foreground',
+      /** Acceso al portal del cliente */
+      portal_registrado:
+        'bg-emerald-500/15 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300',
+      portal_sin_registro:
+        'bg-amber-500/15 text-amber-800 dark:bg-amber-500/20 dark:text-amber-300',
     };
     return map[v] ?? map['default'];
   }

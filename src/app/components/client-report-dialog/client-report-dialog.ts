@@ -1,4 +1,6 @@
 import { Component, computed, effect, input, output, signal } from '@angular/core';
+import { BaseChartDirective } from 'ng2-charts';
+import type { ChartConfiguration } from 'chart.js';
 import { DataService } from '../../core/services/data.service';
 import type { Cliente, Cuenta } from '../../core/models';
 import { DeudorCell } from '../../shared/deudor-cell/deudor-cell';
@@ -21,11 +23,29 @@ import {
   buildTable,
   saveDocx,
 } from '../../core/report-export/report-docx';
+import {
+  buildClienteCobradoPagadoChartData,
+  buildClienteDeudaPorCuentaChartData,
+  buildClienteRecaudoUltimosMesesChartData,
+  buildClienteResumenFinancieroChartData,
+  buildClienteUnidadesPorEdadMoraChartData,
+  buildEdadMoraChartOptions,
+  buildHistorialConCuenta,
+  PREVIEW_CHART_BAR_OPTIONS,
+  PREVIEW_CHART_DEUDA_UNIDAD_OPTIONS,
+  PREVIEW_CHART_DOUGHNUT_OPTIONS,
+  RECAUDO_MESES_OPTIONS,
+  REPORT_CHART_PALETTE_OPTIONS,
+  type RecaudoMesesVentana,
+  type ReportChartPalette,
+  suggestedUnidadChartHeightPx,
+  unidadesEjeYFromEdadMoraChartData,
+} from '../../core/report-export/client-chart-data';
 
 @Component({
   selector: 'app-client-report-dialog',
   standalone: true,
-  imports: [DeudorCell],
+  imports: [DeudorCell, BaseChartDirective],
   template: `
     <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div class="fixed inset-0 bg-black/50" (click)="openChange.emit(false)"></div>
@@ -79,6 +99,119 @@ import {
               <p class="font-bold tabular-nums text-primary text-center text-lg leading-tight break-words">
                 {{ data.formatCurrency(saldo()) }}
               </p>
+            </div>
+          </div>
+
+          <div>
+            <p class="block text-sm font-medium text-foreground mb-2">Color de las gráficas</p>
+            <div class="flex flex-wrap gap-2">
+              @for (opt of paletteOptions; track opt.id) {
+                <button
+                  type="button"
+                  (click)="chartPalette.set(opt.id)"
+                  class="inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-medium transition-colors"
+                  [class.border-foreground]="chartPalette() === opt.id"
+                  [class.bg-muted]="chartPalette() === opt.id"
+                  [class.border-border]="chartPalette() !== opt.id"
+                  [attr.aria-pressed]="chartPalette() === opt.id"
+                >
+                  <span
+                    class="h-4 w-4 rounded-full shrink-0 ring-1 ring-black/10"
+                    [style.background-color]="opt.color"
+                  ></span>
+                  {{ opt.label }}
+                </button>
+              }
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            @if (resumenFinancieroData(); as dough) {
+              <div class="rounded-xl border border-border p-4">
+                <h3 class="text-sm font-semibold text-foreground mb-3">Resumen financiero</h3>
+                <div class="h-[240px]">
+                  <canvas
+                    baseChart
+                    [data]="dough"
+                    [options]="doughnutOptions"
+                    type="doughnut"
+                  ></canvas>
+                </div>
+              </div>
+            }
+
+            @if (cuentas().length > 0) {
+              <div class="rounded-xl border border-border p-4">
+                <h3 class="text-sm font-semibold text-foreground mb-3">Deuda a la fecha por edad en mora</h3>
+                <div class="h-[240px]">
+                  <canvas
+                    baseChart
+                    [data]="barEdadMoraData()"
+                    [options]="barEdadMoraOptions()"
+                    type="bar"
+                  ></canvas>
+                </div>
+              </div>
+            }
+          </div>
+
+          @if (cuentas().length > 0) {
+            <div class="rounded-xl border border-border p-4">
+              <h3 class="text-sm font-semibold text-foreground mb-3">Deuda a la fecha por unidad</h3>
+              <div [style.height.px]="unidadChartHeight()">
+                <canvas
+                  baseChart
+                  [data]="barDeudaUnidadData()"
+                  [options]="barDeudaUnidadOptions"
+                  type="bar"
+                ></canvas>
+              </div>
+            </div>
+          }
+
+          @if (hasCobradoPagadoChart()) {
+            <div class="rounded-xl border border-border p-4">
+              <h3 class="text-sm font-semibold text-foreground mb-3">Cobrado vs Pagado por periodo</h3>
+              <div class="h-[280px]">
+                <canvas
+                  baseChart
+                  [data]="barCobradoPagadoData()"
+                  [options]="barCobradoPagadoOptions"
+                  type="bar"
+                ></canvas>
+              </div>
+            </div>
+          }
+
+          <div class="rounded-xl border border-border p-4">
+            <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
+              <h3 class="text-sm font-semibold text-foreground">Pagado por periodo</h3>
+              <div class="flex flex-wrap gap-2">
+                @for (opt of recaudoMesesOptions; track opt.meses) {
+                  <button
+                    type="button"
+                    (click)="recaudoMeses.set(opt.meses)"
+                    class="rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors"
+                    [class.border-foreground]="recaudoMeses() === opt.meses"
+                    [class.bg-muted]="recaudoMeses() === opt.meses"
+                    [class.border-border]="recaudoMeses() !== opt.meses"
+                    [attr.aria-pressed]="recaudoMeses() === opt.meses"
+                  >
+                    {{ opt.label }}
+                  </button>
+                }
+              </div>
+            </div>
+            <p class="text-xs text-muted-foreground mb-3">
+              Total pagado mes a mes en los últimos {{ recaudoMeses() }} meses.
+            </p>
+            <div [style.height.px]="recaudoChartHeight()">
+              <canvas
+                baseChart
+                [data]="barRecaudoData()"
+                [options]="barCobradoPagadoOptions"
+                type="bar"
+              ></canvas>
             </div>
           </div>
 
@@ -249,6 +382,10 @@ export class ClientReportDialog {
 
   titulo = signal('');
   notasExtra = signal('');
+  chartPalette = signal<ReportChartPalette>('morado');
+  recaudoMeses = signal<RecaudoMesesVentana>(3);
+  readonly paletteOptions = REPORT_CHART_PALETTE_OPTIONS;
+  readonly recaudoMesesOptions = RECAUDO_MESES_OPTIONS;
 
   fecha = new Date().toLocaleDateString('es-CO', {
     day: 'numeric',
@@ -282,6 +419,63 @@ export class ClientReportDialog {
     buildUnidadGestionExportRows(this.data, this.cuentas()),
   );
 
+  readonly barEdadMoraData = computed((): ChartConfiguration<'bar'>['data'] =>
+    buildClienteUnidadesPorEdadMoraChartData(this.data, this.cuentas(), {
+      palette: this.chartPalette(),
+    }),
+  );
+
+  readonly barEdadMoraOptions = computed(() =>
+    buildEdadMoraChartOptions(unidadesEjeYFromEdadMoraChartData(this.barEdadMoraData()), {
+      preview: true,
+    }),
+  );
+
+  readonly resumenFinancieroData = computed(() =>
+    buildClienteResumenFinancieroChartData(
+      this.totalCobrado(),
+      this.totalPagado(),
+      this.saldo(),
+      this.chartPalette(),
+    ),
+  );
+
+  readonly doughnutOptions = PREVIEW_CHART_DOUGHNUT_OPTIONS;
+
+  readonly barDeudaUnidadData = computed((): ChartConfiguration<'bar'>['data'] =>
+    buildClienteDeudaPorCuentaChartData(this.data, this.cuentas(), {
+      palette: this.chartPalette(),
+    }),
+  );
+
+  readonly barDeudaUnidadOptions = PREVIEW_CHART_DEUDA_UNIDAD_OPTIONS;
+
+  readonly barCobradoPagadoData = computed((): ChartConfiguration<'bar'>['data'] =>
+    buildClienteCobradoPagadoChartData(buildHistorialConCuenta(this.data, this.cuentas())),
+  );
+
+  readonly hasCobradoPagadoChart = computed(
+    () => (this.barCobradoPagadoData().labels?.length ?? 0) > 0,
+  );
+
+  readonly barCobradoPagadoOptions = PREVIEW_CHART_BAR_OPTIONS;
+
+  readonly barRecaudoData = computed((): ChartConfiguration<'bar'>['data'] =>
+    buildClienteRecaudoUltimosMesesChartData(
+      buildHistorialConCuenta(this.data, this.cuentas()),
+      this.recaudoMeses(),
+      { palette: this.chartPalette() },
+    ),
+  );
+
+  readonly unidadChartHeight = computed(() =>
+    suggestedUnidadChartHeightPx(this.cuentas().length),
+  );
+
+  readonly recaudoChartHeight = computed(() =>
+    suggestedUnidadChartHeightPx(this.recaudoMeses()),
+  );
+
   /** Solo inicializa título/notas al abrir el informe, no en cada refresco de datos del cliente. */
   private lastSyncedClienteKey: string | null = null;
 
@@ -297,6 +491,8 @@ export class ClientReportDialog {
       this.lastSyncedClienteKey = key;
       if (c.nombre) this.titulo.set(`Informe General – ${c.nombre}`);
       this.notasExtra.set('');
+      this.chartPalette.set('morado');
+      this.recaudoMeses.set(3);
       void this.data.loadGestionesForCuentas(this.cuentas());
     });
   }
@@ -309,6 +505,8 @@ export class ClientReportDialog {
       titulo: this.titulo(),
       notas: this.notasExtra(),
       fecha: this.fecha,
+      chartPalette: this.chartPalette(),
+      recaudoMeses: this.recaudoMeses(),
     });
   }
 

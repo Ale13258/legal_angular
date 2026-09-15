@@ -1,4 +1,5 @@
 import { Component, computed, effect, input, output, signal } from '@angular/core';
+import { BaseChartDirective } from 'ng2-charts';
 import { DataService } from '../../core/services/data.service';
 import type { HistorialPago, Cuenta } from '../../core/models';
 import jsPDF from 'jspdf';
@@ -17,16 +18,25 @@ import {
   buildGestionExportRows,
   GESTION_EXPORT_HEADERS,
 } from '../../core/report-export/gestion-report';
+import {
+  buildCuentaCobradoPagadoChartData,
+  buildCuentaComposicionChartData,
+  CLIENT_CHART_BAR_BY_PERIODO_HORIZONTAL_OPTIONS,
+  CLIENT_CHART_DOUGHNUT_OPTIONS,
+  PREVIEW_CHART_BAR_OPTIONS,
+  PREVIEW_CHART_DOUGHNUT_OPTIONS,
+} from '../../core/report-export/client-chart-data';
+import { renderChartToPng } from '../../core/report-export/chart-to-png';
 
 @Component({
   selector: 'app-report-preview-dialog',
   standalone: true,
-  imports: [],
+  imports: [BaseChartDirective],
   template: `
     <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div class="fixed inset-0 bg-black/50" (click)="openChange.emit(false)"></div>
       <div
-        class="relative z-50 bg-card rounded-2xl shadow-lg border border-border max-w-2xl w-full max-h-[90vh] overflow-auto"
+        class="relative z-50 bg-card rounded-2xl shadow-lg border border-border max-w-3xl w-full max-h-[90vh] overflow-auto"
         (click)="$event.stopPropagation()"
       >
         <!-- Header con título y cerrar -->
@@ -76,6 +86,27 @@ import {
               <p class="font-bold text-primary">{{ data.formatCurrency(saldo()) }}</p>
             </div>
           </div>
+
+          @if (showCharts()) {
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              @if ((barChartData().labels?.length ?? 0) > 0) {
+                <div class="rounded-xl border border-border p-4">
+                  <h3 class="text-sm font-semibold text-foreground mb-3">Cobrado vs Pagado por periodo</h3>
+                  <div class="min-h-[220px]" [style.height.px]="barChartHeightPx()">
+                    <canvas baseChart [data]="barChartData()" [options]="barOptions" type="bar"></canvas>
+                  </div>
+                </div>
+              }
+              @if (doughnutChartData(); as dough) {
+                <div class="rounded-xl border border-border p-4">
+                  <h3 class="text-sm font-semibold text-foreground mb-3">Composición (pagado vs deuda)</h3>
+                  <div class="h-56">
+                    <canvas baseChart [data]="dough" [options]="doughnutOptions" type="doughnut"></canvas>
+                  </div>
+                </div>
+              }
+            </div>
+          }
 
           <div class="rounded-xl border border-border p-4 text-sm space-y-1">
             <p class="font-semibold text-foreground mb-2">Cobro de esta unidad</p>
@@ -229,6 +260,22 @@ export class ReportPreviewDialog {
 
   resumenCobroUnidad = computed(() => this.data.getResumenMoraCobroParaCuenta(this.cuenta()));
 
+  barChartData = computed(() => buildCuentaCobradoPagadoChartData(this.historial()));
+  doughnutChartData = computed(() =>
+    buildCuentaComposicionChartData(this.totalPagado(), this.saldo()),
+  );
+  showCharts = computed(
+    () =>
+      (this.barChartData().labels?.length ?? 0) > 0 || this.doughnutChartData() != null,
+  );
+  barChartHeightPx = computed(() => {
+    const n = this.barChartData().labels?.length ?? 0;
+    return Math.max(220, 64 + n * 44);
+  });
+
+  readonly barOptions = PREVIEW_CHART_BAR_OPTIONS;
+  readonly doughnutOptions = PREVIEW_CHART_DOUGHNUT_OPTIONS;
+
   private lastSyncedCuentaKey: string | null = null;
 
   constructor(protected data: DataService) {
@@ -258,6 +305,64 @@ export class ReportPreviewDialog {
 
   deudaHistorial(h: HistorialPago): number {
     return this.data.getDeudaParaHistorialPago(this.cuenta(), h);
+  }
+
+  private appendUnitChartsToPdf(doc: jsPDF, startY: number): number {
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const marginX = 14;
+    const maxWidth = pageWidth - marginX * 2;
+    let y = startY;
+
+    const ensureSpace = (needed: number): void => {
+      if (y + needed > pageHeight - 14) {
+        doc.addPage();
+        y = 20;
+      }
+    };
+
+    const historial = this.historial();
+    if (historial.length > 0) {
+      const periodCount = new Set(historial.map((h) => h.periodo)).size;
+      const bar = renderChartToPng(
+        {
+          type: 'bar',
+          data: buildCuentaCobradoPagadoChartData(historial),
+          options: CLIENT_CHART_BAR_BY_PERIODO_HORIZONTAL_OPTIONS,
+        },
+        { width: 900, height: Math.max(320, 80 + periodCount * 48) },
+      );
+      const barH = maxWidth * (bar.height / bar.width);
+      ensureSpace(barH + 14);
+      doc.setFontSize(11);
+      doc.text('Cobrado vs Pagado por periodo', marginX, y);
+      y += 6;
+      doc.addImage(bar.dataUrl, 'PNG', marginX, y, maxWidth, barH);
+      y += barH + 10;
+    }
+
+    const doughData = buildCuentaComposicionChartData(this.totalPagado(), this.saldo());
+    if (doughData) {
+      const dough = renderChartToPng(
+        {
+          type: 'doughnut',
+          data: doughData,
+          options: CLIENT_CHART_DOUGHNUT_OPTIONS,
+        },
+        { width: 520, height: 360 },
+      );
+      const doughW = Math.min(maxWidth * 0.65, 110);
+      const doughH = doughW * (dough.height / dough.width);
+      ensureSpace(doughH + 14);
+      doc.setFontSize(11);
+      doc.text('Composición (pagado vs deuda)', marginX, y);
+      y += 6;
+      const x = marginX + (maxWidth - doughW) / 2;
+      doc.addImage(dough.dataUrl, 'PNG', x, y, doughW, doughH);
+      y += doughH + 10;
+    }
+
+    return y;
   }
 
   downloadPdf(): void {
@@ -302,8 +407,11 @@ export class ReportPreviewDialog {
     doc.text(`Inicio del cobro: ${this.data.formatFechaCorta(rc.fecha_inicio_cobro)}`, 14, yAfterEtapa);
     yAfterEtapa += 6;
     doc.text(`Fin del cobro: ${this.data.formatFechaCorta(rc.fecha_fin_cobro)}`, 14, yAfterEtapa);
+
+    yAfterEtapa = this.appendUnitChartsToPdf(doc, yAfterEtapa + 8);
+
     const notas = this.notasExtra()?.trim();
-    let startY = yAfterEtapa + 10;
+    let startY = yAfterEtapa + 4;
     if (notas) {
       doc.setFontSize(10);
       doc.text('Notas:', 14, startY);

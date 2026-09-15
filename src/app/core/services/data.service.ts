@@ -253,10 +253,16 @@ export class DataService {
 
   /**
    * Deuda a la fecha:
+   * - Si el historial de la unidad aún no está en caché → usa `monto_a_la_fecha` del API
+   *   (evita N+1 en listados / dashboard).
    * - Sin valor_cobrado en historial → valor inicial − pagos (al crear = valor inicial).
    * - Con el primer valor_cobrado → Σ cobrado − Σ pagado (ya no usa el inicial).
    */
   getDeudaActualParaCuenta(p: Cuenta): number {
+    if (!this.hasHistorialLoaded(p.id)) {
+      const monto = Number(p.monto_a_la_fecha);
+      return Number.isFinite(monto) ? Math.max(0, monto) : 0;
+    }
     const totalPagado = this.getTotalPagadoParaCuenta(p);
     if (!this.hasValorCobradoEnHistorial(p)) {
       return Math.max(0, this.getSaldoInicialParaCuenta(p) - totalPagado);
@@ -493,17 +499,75 @@ export class DataService {
     fecha_alta: string | null;
   } {
     const historial = this.getHistorialByCuenta(p.id);
-    const maxMoraFromHist = this.maxDiasMoraFromHistorial(historial);
     const fechaAlta = this.fechaDiaDesdeIso(p.created_at);
+    const fechaInicioExplicit =
+      p.fecha_inicio_cobro?.trim() || this.fechaInicioCobroDesdeHistorial(historial) || null;
+    const fechaInicioCobro = fechaInicioExplicit || fechaAlta;
+    const fechaFinCobro =
+      p.fecha_fin_cobro?.trim() || this.fechaFinCobroDesdeHistorial(historial);
     return {
-      edad_mora_dias: p.edad_mora_dias ?? maxMoraFromHist,
-      fecha_inicio_cobro:
-        p.fecha_inicio_cobro?.trim() ||
-        this.fechaInicioCobroDesdeHistorial(historial) ||
-        fechaAlta,
-      fecha_fin_cobro: p.fecha_fin_cobro?.trim() || this.fechaFinCobroDesdeHistorial(historial),
+      // Solo derivar días desde inicio explícito de cobro/mora (no desde el alta sola).
+      edad_mora_dias: this.resolveEdadMoraDias(
+        p,
+        historial,
+        fechaInicioExplicit,
+        fechaFinCobro,
+      ),
+      fecha_inicio_cobro: fechaInicioCobro,
+      fecha_fin_cobro: fechaFinCobro,
       fecha_alta: fechaAlta,
     };
+  }
+
+  /**
+   * Edad en mora: campo API → máx. `dias_en_mora` del historial → días desde
+   * inicio de cobro/mora hasta hoy (o fin de cobro si ya cerró).
+   */
+  private resolveEdadMoraDias(
+    p: Cuenta,
+    historial: HistorialPago[],
+    fechaInicioCobro: string | null,
+    fechaFinCobro: string | null,
+  ): number | null {
+    if (p.edad_mora_dias != null && Number.isFinite(Number(p.edad_mora_dias))) {
+      return Math.max(0, Math.floor(Number(p.edad_mora_dias)));
+    }
+    const fromHist = this.maxDiasMoraFromHistorial(historial);
+    if (fromHist != null) return fromHist;
+    if (!fechaInicioCobro) return null;
+    const start = fechaInicioCobro.slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(start)) return null;
+    const endRaw = (fechaFinCobro?.slice(0, 10) || this.businessTodayYmd()).slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(endRaw)) return null;
+    return this.inclusiveCalendarDaysYmd(start, endRaw);
+  }
+
+  /** Hoy civil en zona de negocio (America/Bogota), YYYY-MM-DD. */
+  private businessTodayYmd(): string {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Bogota',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(new Date());
+    const year = parts.find((p) => p.type === 'year')?.value;
+    const month = parts.find((p) => p.type === 'month')?.value;
+    const day = parts.find((p) => p.type === 'day')?.value;
+    if (!year || !month || !day) {
+      const d = new Date();
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    }
+    return `${year}-${month}-${day}`;
+  }
+
+  /** Días de calendario inclusivos entre dos YYYY-MM-DD; si fin < inicio → 0. */
+  private inclusiveCalendarDaysYmd(startYmd: string, endYmd: string): number {
+    if (endYmd < startYmd) return 0;
+    const [ys, ms, ds] = startYmd.split('-').map(Number);
+    const [ye, me, de] = endYmd.split('-').map(Number);
+    const start = Date.UTC(ys!, ms! - 1, ds!, 12, 0, 0);
+    const end = Date.UTC(ye!, me! - 1, de!, 12, 0, 0);
+    return Math.round((end - start) / 86_400_000) + 1;
   }
 
   /** `YYYY-MM-DD` desde ISO timestamptz o null. */
@@ -621,6 +685,11 @@ export class DataService {
 
   getHistorialByCuenta(cuentaId: string): HistorialPago[] {
     return this.historialByCuentaSignal()[cuentaId] ?? [];
+  }
+
+  /** True si ya se hizo GET de historial para esa unidad (aunque venga vacío). */
+  hasHistorialLoaded(cuentaId: string): boolean {
+    return Object.prototype.hasOwnProperty.call(this.historialByCuentaSignal(), cuentaId);
   }
 
   async addHistorialPago(cuentaId: string, payload: AddHistorialPayload): Promise<HistorialPago> {
@@ -930,11 +999,7 @@ export class DataService {
   }
 
   getTotalCartera(): number {
-    const propiedades = this.cuentasSignal();
-    if (propiedades.length > 0) {
-      return propiedades.reduce((sum, p) => sum + this.getDeudaActualParaCuenta(p), 0);
-    }
-
+    // Agregado del backend: evita sumar deuda con N+1 de historiales en listados.
     return this.metricsDashboardSignal().total_cartera;
   }
 
@@ -994,9 +1059,10 @@ export class DataService {
       this.loadClientes(),
       this.loadCuentas(),
     ]);
+    // Sin N+1 completo de historial: cartera vía metrics; mora vía campo API + fallback selectivo.
     await Promise.all([
       this.loadProcesosLegalesForLoadedClientes(),
-      this.loadHistorialesForCuentas(this.cuentasSignal()),
+      this.loadHistorialesMissingEdadMora(this.cuentasSignal()),
     ]);
   }
 
@@ -1009,7 +1075,7 @@ export class DataService {
     ]);
     await Promise.all([
       this.loadProcesosLegalesForLoadedClientes(),
-      this.loadHistorialesForCuentas(this.cuentasSignal()),
+      this.loadHistorialesMissingEdadMora(this.cuentasSignal()),
     ]);
   }
 
@@ -1035,6 +1101,13 @@ export class DataService {
 
   async updateCliente(clienteId: string, payload: UpdateClientePayload): Promise<Cliente> {
     const cliente = await this.http.patch<Cliente>(`/clientes/${clienteId}`, payload);
+    this.clientesSignal.update((prev) => this.upsertById(prev, cliente));
+    return cliente;
+  }
+
+  /** Reenvía el correo de bienvenida / invitación al portal (mismo mailer del alta). */
+  async resendClienteInvitation(clienteId: string): Promise<Cliente> {
+    const cliente = await this.http.post<Cliente>(`/clientes/${clienteId}/resend-invitation`, {});
     this.clientesSignal.update((prev) => this.upsertById(prev, cliente));
     return cliente;
   }
@@ -1160,6 +1233,13 @@ export class DataService {
     return items;
   }
 
+  /** Una sola petición con todos los procesos legales (staff). */
+  async loadAllProcesosLegales(): Promise<ProcesoLegal[]> {
+    const items = await this.http.getItems<ProcesoLegal>('/procesos-legales');
+    this.procesosLegalesSignal.set(items);
+    return items;
+  }
+
   async createProcesoLegal(payload: CreateProcesoLegalPayload): Promise<ProcesoLegal> {
     const body: Record<string, unknown> = {
       cliente_id: payload.cliente_id,
@@ -1223,8 +1303,40 @@ export class DataService {
     await Promise.all(propiedades.map((p) => this.loadHistorialByCuenta(p.id)));
   }
 
+  /**
+   * Carga historial solo de unidades sin `edad_mora_dias` en el API,
+   * para poder calcular el fallback local sin N+1 completo.
+   */
+  async loadHistorialesMissingEdadMora(propiedades: Cuenta[]): Promise<void> {
+    const missing = propiedades.filter(
+      (p) => p.edad_mora_dias == null || !Number.isFinite(Number(p.edad_mora_dias)),
+    );
+    if (missing.length === 0) return;
+    await this.loadHistorialesForCuentas(missing);
+  }
+
   async loadGestionesForCuentas(propiedades: Pick<Cuenta, 'id'>[]): Promise<void> {
-    await Promise.all(propiedades.map((p) => this.loadGestionesByCuenta(p.id)));
+    if (propiedades.length === 0) return;
+    // Listados: 1 GET /gestiones. Detalle de una unidad: GET por cuenta.
+    if (propiedades.length === 1) {
+      await this.loadGestionesByCuenta(propiedades[0]!.id);
+      return;
+    }
+    await this.loadAllGestiones();
+  }
+
+  /** Una sola petición con todas las gestiones (staff). */
+  async loadAllGestiones(): Promise<void> {
+    const items = await this.http.getItems<Gestion>('/gestiones');
+    const byCuenta: Record<string, Gestion[]> = {};
+    for (const raw of items) {
+      const normalized = this.normalizeGestion(raw, raw.cuenta_id);
+      const cuentaId = normalized.cuenta_id;
+      const list = byCuenta[cuentaId];
+      if (list) list.push(normalized);
+      else byCuenta[cuentaId] = [normalized];
+    }
+    this.gestionesByCuentaSignal.set(byCuenta);
   }
 
   async loadGestionesByCuenta(cuentaId: string): Promise<Gestion[]> {
@@ -1332,8 +1444,7 @@ export class DataService {
   }
 
   private async loadProcesosLegalesForLoadedClientes(): Promise<void> {
-    const clientes = this.clientesSignal();
-    await Promise.all(clientes.map((c) => this.loadProcesosLegalesByCliente(c.id)));
+    await this.loadAllProcesosLegales();
   }
 
   private upsertById<T extends { id: string }>(items: T[], value: T): T[] {

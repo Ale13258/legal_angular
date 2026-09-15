@@ -1,19 +1,24 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { DataService } from '../../core/services/data.service';
-import { AuthService } from '../../core/services/auth.service';
 import { BalanceCard } from '../../shared/balance-card/balance-card';
+import { RecordatorioPeriodoChip } from '../../shared/recordatorio-periodo-chip/recordatorio-periodo-chip';
 import { StatusBadge } from '../../shared/status-badge/status-badge';
 import { fadeInUp, fadeInUpStagger } from '../../core/animations/animations';
-import type { Cliente, Cuenta, ProcesoLegal, TipoProcesoLegal } from '../../core/models';
+import type { Cuenta, ProcesoLegal, TipoProcesoLegal } from '../../core/models';
 import {
   ESTADOS_PROCESO_LEGAL_UI,
   coerceEstadoProcesoLegal,
   matchesEstadoProcesoLegalFilter,
 } from '../../core/proceso-estado';
+import {
+  getPeriodoRecordatorio,
+  resumenRecordatoriosCliente,
+  type ResumenRecordatorios,
+} from '../../core/utils/cuenta-recordatorio-periodo';
 
 type DashboardRow = {
-  cliente: Cliente;
+  cliente: { id: string; nombre: string };
   procesos: ProcesoLegal[];
   propiedades: Cuenta[];
 };
@@ -21,7 +26,7 @@ type DashboardRow = {
 @Component({
   selector: 'app-dashboard-page',
   standalone: true,
-  imports: [RouterLink, BalanceCard, StatusBadge],
+  imports: [RouterLink, BalanceCard, StatusBadge, RecordatorioPeriodoChip],
   animations: [fadeInUp, fadeInUpStagger],
   template: `
     <div class="min-h-screen">
@@ -43,14 +48,12 @@ type DashboardRow = {
               >
                 + Nuevo Cliente
               </a>
-              @if (auth.isSuperAdmin()) {
-                <a
-                  routerLink="/usuarios"
-                  class="nav-pill rounded-xl bg-primary-foreground text-primary px-4 py-2 font-medium hover:opacity-95"
-                >
-                  Usuarios
-                </a>
-              }
+              <a
+                routerLink="/usuarios"
+                class="nav-pill rounded-xl bg-primary-foreground text-primary px-4 py-2 font-medium hover:opacity-95"
+              >
+                Usuarios
+              </a>
               <a
                 routerLink="/graficos"
                 class="nav-pill rounded-xl border-2 border-primary-foreground/50 text-primary-foreground px-4 py-2 font-medium hover:bg-primary-foreground/10"
@@ -68,7 +71,7 @@ type DashboardRow = {
             {{ error() }}
           </div>
         }
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+        <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 mb-8">
           <app-balance-card
             label="CARTERA TOTAL"
             [amount]="totalCartera()"
@@ -93,8 +96,8 @@ type DashboardRow = {
         </div>
 
         <div class="interactive-card bg-card rounded-2xl shadow-card p-4 sm:p-6 mb-6 border border-border/50">
-          <div class="flex flex-col md:flex-row gap-4">
-            <div class="relative flex-1 min-w-0">
+          <div class="flex flex-col md:flex-row flex-wrap gap-4">
+            <div class="relative flex-1 min-w-[12rem]">
               <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none">
                 <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
               </svg>
@@ -139,8 +142,12 @@ type DashboardRow = {
                 <tr class="border-b border-border">
                   <th class="text-left px-6 py-4 text-xs font-semibold text-muted-foreground uppercase">Cliente</th>
                   <th class="text-left px-6 py-4 text-xs font-semibold text-muted-foreground uppercase">Propiedades</th>
-                  <th class="text-left px-6 py-4 text-xs font-semibold text-muted-foreground uppercase">No. RADICADO</th>
-                  <th class="text-left px-6 py-4 text-xs font-semibold text-muted-foreground uppercase">Tipo</th>
+                  <th
+                    class="text-center px-6 py-4 text-xs font-semibold text-muted-foreground uppercase"
+                    title="Recordatorios enviados / propiedades en el periodo"
+                  >
+                    Recordatorios
+                  </th>
                   <th class="text-left px-6 py-4 text-xs font-semibold text-muted-foreground uppercase">Estado</th>
                   <th class="text-right px-6 py-4 text-xs font-semibold text-muted-foreground uppercase">Acciones</th>
                 </tr>
@@ -151,21 +158,17 @@ type DashboardRow = {
                     [@fadeInUpStagger]="{ value: '', params: { delay: i * 50, duration: 200, offset: 5, ease: 'ease-out' } }"
                     class="border-b border-border/50 hover:bg-secondary/50"
                   >
-                    <td class="px-6 py-4 font-medium">{{ row.cliente.nombre }}</td>
+                    <td class="px-6 py-4">
+                      <div class="font-medium text-foreground">{{ row.cliente.nombre }}</div>
+                    </td>
                     <td class="px-6 py-4 text-sm text-muted-foreground">
                       {{ resumenPropiedades(row) }}
                     </td>
-                    <td class="px-6 py-4 text-muted-foreground font-mono text-sm">
-                      {{ resumenRadicados(row) }}
-                    </td>
-                    <td class="px-6 py-4">
-                      @if (tipoResumen(row); as tipo) {
-                        <app-status-badge
-                          [label]="tipo.label"
-                          [variant]="tipo.variant"
-                        />
+                    <td class="px-6 py-4 text-center">
+                      @if (row.propiedades.length === 0) {
+                        <span class="text-sm text-muted-foreground">—</span>
                       } @else {
-                        <span class="text-muted-foreground">-</span>
+                        <app-recordatorio-periodo-chip [resumen]="resumenRecordatorios(row)" />
                       }
                     </td>
                     <td class="px-6 py-4">
@@ -181,8 +184,9 @@ type DashboardRow = {
                     <td class="px-6 py-4 text-right">
                       <a
                         [routerLink]="['/clientes', row.cliente.id]"
-                        class="inline-flex p-2 rounded-lg hover:bg-muted"
-                        title="Ver cliente"
+                        class="inline-flex items-center justify-center size-9 rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
+                        title="Ver detalle del cliente"
+                        aria-label="Ver detalle del cliente"
                       >
                         <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
                       </a>
@@ -202,7 +206,6 @@ type DashboardRow = {
 })
 export class DashboardPage {
   protected readonly data = inject(DataService);
-  protected readonly auth = inject(AuthService);
   readonly loading = signal(true);
   readonly error = signal<string | null>(null);
   search = signal('');
@@ -274,23 +277,12 @@ export class DashboardPage {
     return `${n} propiedades`;
   }
 
-  resumenRadicados(row: DashboardRow): string {
-    const n = row.procesos.length;
-    if (n === 0) return '—';
-    if (n === 1) return row.procesos[0]!.numero_cuenta;
-    return `${n} radicados`;
-  }
-
-  tipoResumen(row: DashboardRow): { label: string; variant: string } | null {
-    if (row.procesos.length === 0) return null;
-    const first = row.procesos[0]!.tipo;
-    const mismoTipo = row.procesos.every((p) => p.tipo === first);
-    if (!mismoTipo) return { label: 'VARIOS', variant: 'default' };
-    return {
-      label: this.data.tipoProcesoLegalLabels[first] ?? first,
-      variant:
-        first === 'juridica' ? 'juridica' : first === 'extrajudicial' ? 'pendiente' : 'parcial',
-    };
+  resumenRecordatorios(row: DashboardRow): ResumenRecordatorios {
+    return resumenRecordatoriosCliente(
+      row.propiedades.map((p) => p.id),
+      (id) => this.data.getGestionesByCuenta(id),
+      getPeriodoRecordatorio(),
+    );
   }
 
   estadoResumen(row: DashboardRow): string {
@@ -309,6 +301,7 @@ export class DashboardPage {
     this.error.set(null);
     try {
       await this.data.loadDashboardData();
+      await this.data.loadAllGestiones();
     } catch {
       this.error.set('No se pudo cargar el dashboard.');
     } finally {

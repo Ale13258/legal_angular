@@ -22,12 +22,17 @@ import { CrearProcesoLegalDialog } from '../../components/crear-proceso-legal-di
 import { ReportPreviewDialog } from '../../components/report-preview-dialog/report-preview-dialog';
 import { BalanceCard } from '../../shared/balance-card/balance-card';
 import { DeudorCell } from '../../shared/deudor-cell/deudor-cell';
+import { RecordatorioPeriodoChip } from '../../shared/recordatorio-periodo-chip/recordatorio-periodo-chip';
 import { StatusBadge } from '../../shared/status-badge/status-badge';
 import { fadeInUpStagger } from '../../core/animations/animations';
 import type { ProcesoLegal, DeudorCobro, Cuenta, TipoPersona, TipoCuenta } from '../../core/models';
 import { formatMontoColombiano } from '../../core/utils/format-monto-colombiano';
 import { resolveDeudores } from '../../core/utils/normalize-cuenta-deudores';
 import { parseMontoColombiano } from '../../core/utils/parse-monto-colombiano';
+import {
+  cuentaTieneRecordatorioEnPeriodo,
+  getPeriodoRecordatorio,
+} from '../../core/utils/cuenta-recordatorio-periodo';
 
 const MAX_DEUDORES = 10;
 const MAX_EMAILS_POR_DEUDOR = 5;
@@ -48,6 +53,7 @@ function deudorContactoValidator(group: AbstractControl): ValidationErrors | nul
     BalanceCard,
     DeudorCell,
     StatusBadge,
+    RecordatorioPeriodoChip,
     ClientReportDialog,
     CrearProcesoLegalDialog,
     ReportPreviewDialog,
@@ -108,9 +114,9 @@ function deudorContactoValidator(group: AbstractControl): ValidationErrors | nul
                 </button>
               </div>
               <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
-                <div class="flex items-center gap-2 text-muted-foreground">
+                <div class="flex items-center gap-2 text-muted-foreground min-w-0">
                   <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="shrink-0 text-muted-foreground"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
-                  {{ cliente()!.email }}
+                  <span class="truncate">{{ cliente()!.email }}</span>
                 </div>
                 <div class="flex items-center gap-2 text-muted-foreground">
                   <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="shrink-0 text-muted-foreground"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
@@ -163,16 +169,17 @@ function deudorContactoValidator(group: AbstractControl): ValidationErrors | nul
               </button>
             </div>
             <div class="table-wrap">
-              <table class="w-full min-w-[72rem] table-fixed">
+              <table class="w-full min-w-[80rem] table-fixed">
                 <colgroup>
-                  <col class="w-[14%]" />
                   <col class="w-[12%]" />
-                  <col class="w-[11%]" />
-                  <col class="w-[13%]" />
-                  <col class="w-[13%]" />
-                  <col class="w-[11%]" />
+                  <col class="w-[10%]" />
+                  <col class="w-[10%]" />
                   <col class="w-[12%]" />
-                  <col class="w-[14%]" />
+                  <col class="w-[12%]" />
+                  <col class="w-[10%]" />
+                  <col class="w-[11%]" />
+                  <col class="w-[10%]" />
+                  <col class="w-[13%]" />
                 </colgroup>
                 <thead>
                   <tr class="border-b border-border">
@@ -188,6 +195,12 @@ function deudorContactoValidator(group: AbstractControl): ValidationErrors | nul
                     </th>
                     <th class="text-right px-3 py-3 text-xs font-semibold text-muted-foreground uppercase whitespace-nowrap">Valor inicial</th>
                     <th class="text-right px-3 py-3 text-xs font-semibold text-muted-foreground uppercase whitespace-nowrap">Deuda a la fecha</th>
+                    <th
+                      class="text-center px-3 py-3 text-xs font-semibold text-muted-foreground uppercase whitespace-nowrap"
+                      title="Recordatorio de pago en el periodo mensual (corte día 30)"
+                    >
+                      Recordatorio
+                    </th>
                     <th class="text-right px-1 py-3 text-xs font-semibold text-muted-foreground uppercase whitespace-nowrap">Acciones</th>
                   </tr>
                 </thead>
@@ -228,6 +241,9 @@ function deudorContactoValidator(group: AbstractControl): ValidationErrors | nul
                       </td>
                       <td class="px-3 py-3 text-right tabular-nums whitespace-nowrap align-middle font-semibold">
                         {{ data.formatDeuda(data.getDeudaActualParaCuenta(p)) }}
+                      </td>
+                      <td class="px-3 py-3 text-center align-middle">
+                        <app-recordatorio-periodo-chip [enviado]="recordatorioEnviado(p)" />
                       </td>
                       <td class="px-1 py-3 whitespace-nowrap align-middle text-right">
                         <div class="inline-flex items-center justify-end gap-0 shrink-0">
@@ -1218,6 +1234,13 @@ export class ClienteDetailPage {
     } finally {
       this.cuentaCreateLoading.set(false);
     }
+  }
+
+  protected recordatorioEnviado(p: Cuenta): boolean {
+    return cuentaTieneRecordatorioEnPeriodo(
+      this.data.getGestionesByCuenta(p.id),
+      getPeriodoRecordatorio(),
+    );
   }
 
   protected resumenCobro(p: Cuenta) {

@@ -3,8 +3,6 @@ import { adminGuard } from './core/guards/admin.guard';
 import { authGuard } from './core/guards/auth.guard';
 import { clienteGuard } from './core/guards/cliente.guard';
 import { guestGuard } from './core/guards/guest.guard';
-import { superAdminGuard } from './core/guards/super-admin.guard';
-
 export const routes: Routes = [
   { path: '', loadComponent: () => import('./pages/welcome-page/welcome-page').then((m) => m.WelcomePage) },
   {
@@ -36,7 +34,7 @@ export const routes: Routes = [
       },
       {
         path: 'usuarios',
-        canActivate: [superAdminGuard],
+        canActivate: [adminGuard],
         loadComponent: () =>
           import('./pages/usuarios-page/usuarios-page').then((m) => m.UsuariosPage),
       },

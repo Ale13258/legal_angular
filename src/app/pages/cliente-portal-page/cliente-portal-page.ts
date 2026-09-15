@@ -2,6 +2,11 @@ import { Component, computed, inject, signal } from '@angular/core';
 import { BaseChartDirective } from 'ng2-charts';
 import type { ChartConfiguration } from 'chart.js';
 import { downloadClientGeneralReportPdf } from '../../core/report-export/client-general-report-pdf';
+import {
+  buildClienteUnidadesPorEdadMoraChartData,
+  buildEdadMoraChartOptions,
+  unidadesEjeYFromEdadMoraChartData,
+} from '../../core/report-export/client-chart-data';
 import type { Cuenta } from '../../core/models';
 import { AuthService } from '../../core/services/auth.service';
 import { DataService } from '../../core/services/data.service';
@@ -75,10 +80,15 @@ import { fadeInUp, fadeInUpStagger } from '../../core/animations/animations';
           </div>
 
           <div class="bg-card rounded-2xl shadow-card border border-border/50 p-4 sm:p-6 min-w-0">
-            <h2 class="font-display font-semibold text-lg text-foreground mb-4">Deuda por propiedad</h2>
+            <h2 class="font-display font-semibold text-lg text-foreground mb-4">Deuda a la fecha por edad en mora</h2>
             @if (cuentas().length > 0) {
-              <div class="h-[260px]">
-                <canvas baseChart [data]="barDeudaCuentaData()" [options]="barDeudaOptions" type="bar"></canvas>
+              <div class="h-[280px]">
+                <canvas
+                  baseChart
+                  [data]="barEdadMoraData()"
+                  [options]="barEdadMoraOptions()"
+                  type="bar"
+                ></canvas>
               </div>
             } @else {
               <div class="h-[260px] rounded-xl bg-muted/30 flex items-center justify-center text-sm text-muted-foreground">
@@ -266,22 +276,6 @@ export class ClientePortalPage {
     plugins: { legend: { position: 'top' } },
   };
 
-  readonly barDeudaOptions: ChartConfiguration<'bar'>['options'] = {
-    responsive: true,
-    maintainAspectRatio: false,
-    indexAxis: 'y',
-    scales: {
-      x: {
-        beginAtZero: true,
-        ticks: {
-          callback: (value) =>
-            typeof value === 'number' ? this.data.formatCurrency(value) : value,
-        },
-      },
-    },
-    plugins: { legend: { display: false } },
-  };
-
   stagger(i: number) {
     return {
       value: '',
@@ -363,19 +357,15 @@ export class ClientePortalPage {
     };
   });
 
-  readonly barDeudaCuentaData = computed((): ChartConfiguration<'bar'>['data'] => {
-    const props = this.cuentas();
-    return {
-      labels: props.map((p) => p.identificador),
-      datasets: [
-        {
-          label: 'Deuda',
-          data: props.map((p) => this.data.getDeudaActualParaCuenta(p)),
-          backgroundColor: '#6b3cc8',
-        },
-      ],
-    };
-  });
+  readonly barEdadMoraData = computed((): ChartConfiguration<'bar'>['data'] =>
+    buildClienteUnidadesPorEdadMoraChartData(this.data, this.cuentas()),
+  );
+
+  readonly barEdadMoraOptions = computed(() =>
+    buildEdadMoraChartOptions(unidadesEjeYFromEdadMoraChartData(this.barEdadMoraData()), {
+      preview: true,
+    }),
+  );
 
   constructor() {
     void this.init();

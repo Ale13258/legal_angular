@@ -1,14 +1,24 @@
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { HttpErrorResponse } from '@angular/common/http';
+import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { fadeInUp } from '../../core/animations/animations';
+import type { Cliente } from '../../core/models';
 import type { InvitableStaffRole } from '../../core/services/auth.service';
 import { AuthService } from '../../core/services/auth.service';
+import { DataService } from '../../core/services/data.service';
 import {
   UsuariosService,
   type StaffUsuario,
   type StaffUsuarioStatus,
 } from '../../core/services/usuarios.service';
+import {
+  canResendClientePortalInvitation,
+  clientePortalLabel,
+  matchesClientePortalFilter,
+  normalizeClientePortalStatus,
+  type ClientePortalFilter,
+} from '../../core/utils/cliente-portal-status';
 
 @Component({
   selector: 'app-usuarios-page',
@@ -29,7 +39,11 @@ import {
             Usuarios
           </h1>
           <p class="text-primary-foreground/70 mt-1 text-sm md:text-base">
-            Invita analistas legales y abogadas junior. Ellos crearán su contraseña al registrarse.
+            @if (auth.isSuperAdmin()) {
+              Gestiona el staff e invita usuarios. Revisa el acceso al portal de clientes.
+            } @else {
+              Consulta el acceso al portal de clientes y reenvía invitaciones pendientes.
+            }
           </p>
         </div>
       </div>
@@ -54,54 +68,57 @@ import {
         [class.-mt-6]="!error() && !success()"
         [class.mt-6]="!!error() || !!success()"
       >
-        <section
-          [@fadeInUp]="{ value: '', params: { delay: 0, duration: 450, offset: 10, ease: 'ease-out' } }"
-          class="bg-card rounded-2xl shadow-card p-4 sm:p-6 border border-border/50"
-        >
-          <h2 class="font-display text-lg font-semibold text-foreground mb-4">Nuevo usuario</h2>
-          <form [formGroup]="createForm" (ngSubmit)="onCreate()" class="space-y-4">
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div class="space-y-2">
-                <label class="text-sm font-medium" for="email">Correo</label>
-                <input
-                  id="email"
-                  type="email"
-                  formControlName="email"
-                  placeholder="usuario@correo.com"
-                  class="w-full rounded-xl border border-input bg-background px-4 py-2"
-                />
+        @if (auth.isSuperAdmin()) {
+          <section
+            [@fadeInUp]="{ value: '', params: { delay: 0, duration: 450, offset: 10, ease: 'ease-out' } }"
+            class="bg-card rounded-2xl shadow-card p-4 sm:p-6 border border-border/50"
+          >
+            <h2 class="font-display text-lg font-semibold text-foreground mb-4">Nuevo usuario</h2>
+            <form [formGroup]="createForm" (ngSubmit)="onCreate()" class="space-y-4">
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div class="space-y-2">
+                  <label class="text-sm font-medium" for="email">Correo</label>
+                  <input
+                    id="email"
+                    type="email"
+                    formControlName="email"
+                    placeholder="usuario@correo.com"
+                    class="w-full rounded-xl border border-input bg-background px-4 py-2"
+                  />
+                </div>
+                <div class="space-y-2">
+                  <label class="text-sm font-medium" for="role">Rol</label>
+                  <select
+                    id="role"
+                    formControlName="role"
+                    class="w-full rounded-xl border border-input bg-background px-4 py-2"
+                  >
+                    <option value="analista_legal">Analista legal</option>
+                    <option value="abogada_junior">Abogada junior</option>
+                  </select>
+                </div>
               </div>
-              <div class="space-y-2">
-                <label class="text-sm font-medium" for="role">Rol</label>
-                <select
-                  id="role"
-                  formControlName="role"
-                  class="w-full rounded-xl border border-input bg-background px-4 py-2"
+              <p class="text-sm text-muted-foreground">
+                Se enviará un enlace al correo para que la persona cree su contraseña y active la cuenta.
+              </p>
+              <div class="flex justify-end">
+                <button
+                  type="submit"
+                  [disabled]="createForm.invalid || creating()"
+                  class="nav-pill rounded-xl bg-primary text-primary-foreground px-5 py-2.5 font-medium hover:opacity-95 disabled:opacity-60"
                 >
-                  <option value="analista_legal">Analista legal</option>
-                  <option value="abogada_junior">Abogada junior</option>
-                </select>
+                  {{ creating() ? 'Enviando…' : 'Enviar invitación' }}
+                </button>
               </div>
-            </div>
-            <p class="text-sm text-muted-foreground">
-              Se enviará un enlace al correo para que la persona cree su contraseña y active la cuenta.
-            </p>
-            <div class="flex justify-end">
-              <button
-                type="submit"
-                [disabled]="createForm.invalid || creating()"
-                class="nav-pill rounded-xl bg-primary text-primary-foreground px-5 py-2.5 font-medium hover:opacity-95 disabled:opacity-60"
-              >
-                {{ creating() ? 'Enviando…' : 'Enviar invitación' }}
-              </button>
-            </div>
-          </form>
-        </section>
+            </form>
+          </section>
+        }
 
-        <section
-          [@fadeInUp]="{ value: '', params: { delay: 80, duration: 450, offset: 10, ease: 'ease-out' } }"
-          class="bg-card rounded-2xl shadow-card border border-border/50 overflow-hidden"
-        >
+        @if (auth.isSuperAdmin()) {
+          <section
+            [@fadeInUp]="{ value: '', params: { delay: 80, duration: 450, offset: 10, ease: 'ease-out' } }"
+            class="bg-card rounded-2xl shadow-card border border-border/50 overflow-hidden"
+          >
           <div class="flex flex-wrap items-center justify-between gap-3 p-4 sm:p-6 border-b border-border/50">
             <h2 class="font-display text-lg font-semibold text-foreground">Staff</h2>
             <div class="flex flex-wrap gap-2">
@@ -129,7 +146,9 @@ import {
           @if (loading()) {
             <p class="p-6 text-sm text-muted-foreground">Cargando usuarios…</p>
           } @else if (usuarios().length === 0) {
-            <p class="p-6 text-sm text-muted-foreground">No hay usuarios con ese filtro.</p>
+            <p class="p-6 text-sm text-muted-foreground">
+              {{ statusFilter() ? 'No hay usuarios con ese filtro.' : 'No hay usuarios.' }}
+            </p>
           } @else {
             <div class="overflow-x-auto">
               <table class="w-full text-sm">
@@ -244,6 +263,106 @@ import {
               </table>
             </div>
           }
+          </section>
+        }
+
+        <section
+          [@fadeInUp]="{ value: '', params: { delay: 120, duration: 450, offset: 10, ease: 'ease-out' } }"
+          class="bg-card rounded-2xl shadow-card border border-border/50 overflow-hidden"
+        >
+          <div class="flex flex-wrap items-center justify-between gap-3 p-4 sm:p-6 border-b border-border/50">
+            <div>
+              <h2 class="font-display text-lg font-semibold text-foreground">Portal de clientes</h2>
+              <p class="text-sm text-muted-foreground mt-0.5">
+                {{ portalTotal() }} clientes · {{ portalRegistrados() }} registrados
+              </p>
+            </div>
+            <div class="flex flex-wrap gap-2">
+              <button
+                type="button"
+                (click)="portalFilter.set('todos')"
+                class="rounded-full px-3 py-1 text-xs font-medium border"
+                [class]="portalFilter() === 'todos' ? 'bg-primary text-primary-foreground border-primary' : 'border-border text-muted-foreground hover:bg-muted'"
+              >
+                Todos
+              </button>
+              <button
+                type="button"
+                (click)="portalFilter.set('registrado')"
+                class="rounded-full px-3 py-1 text-xs font-medium border"
+                [class]="portalFilter() === 'registrado' ? 'bg-primary text-primary-foreground border-primary' : 'border-border text-muted-foreground hover:bg-muted'"
+              >
+                Registrados
+              </button>
+              <button
+                type="button"
+                (click)="portalFilter.set('sin_registro')"
+                class="rounded-full px-3 py-1 text-xs font-medium border"
+                [class]="portalFilter() === 'sin_registro' ? 'bg-primary text-primary-foreground border-primary' : 'border-border text-muted-foreground hover:bg-muted'"
+              >
+                Sin registro
+              </button>
+            </div>
+          </div>
+
+          @if (portalLoading()) {
+            <p class="p-6 text-sm text-muted-foreground">Cargando clientes…</p>
+          } @else if (clientesPortalFiltered().length === 0) {
+            <p class="p-6 text-sm text-muted-foreground">No hay clientes con ese filtro.</p>
+          } @else {
+            <div class="overflow-x-auto">
+              <table class="w-full text-sm">
+                <thead>
+                  <tr class="text-left text-muted-foreground border-b border-border/50">
+                    <th class="px-4 sm:px-6 py-3 font-medium">Cliente</th>
+                    <th class="px-4 py-3 font-medium">Correo</th>
+                    <th class="px-4 py-3 font-medium">Estado portal</th>
+                    <th class="px-4 sm:px-6 py-3 font-medium text-right">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (c of clientesPortalFiltered(); track c.id) {
+                    <tr class="border-b border-border/40 last:border-0">
+                      <td class="px-4 sm:px-6 py-3 text-foreground font-medium">{{ c.nombre }}</td>
+                      <td class="px-4 py-3 text-muted-foreground">{{ c.email || '—' }}</td>
+                      <td class="px-4 py-3">
+                        @if (portalStatusLabel(c); as label) {
+                          <span
+                            class="inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium"
+                            [class]="portalStatusBadgeClass(c)"
+                          >
+                            {{ label }}
+                          </span>
+                        } @else {
+                          <span class="text-muted-foreground">—</span>
+                        }
+                      </td>
+                      <td class="px-4 sm:px-6 py-3">
+                        <div class="flex flex-wrap justify-end gap-2">
+                          @if (canResendCliente(c)) {
+                            <button
+                              type="button"
+                              (click)="resendClientePortal(c)"
+                              [disabled]="isClienteResendDisabled(c.id)"
+                              class="rounded-lg border border-border px-3 py-1.5 text-xs font-medium hover:bg-muted disabled:opacity-60"
+                            >
+                              {{
+                                portalResendingId() === c.id
+                                  ? 'Enviando…'
+                                  : portalResentIds().has(c.id)
+                                    ? 'Enviada'
+                                    : 'Reenviar invitación'
+                              }}
+                            </button>
+                          }
+                        </div>
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          }
         </section>
       </div>
 
@@ -338,19 +457,24 @@ import {
 })
 export class UsuariosPage implements OnInit {
   private readonly usuariosService = inject(UsuariosService);
-  private readonly auth = inject(AuthService);
+  private readonly data = inject(DataService);
+  readonly auth = inject(AuthService);
   private readonly fb = inject(FormBuilder);
 
   readonly usuarios = signal<StaffUsuario[]>([]);
   readonly loading = signal(true);
+  readonly portalLoading = signal(true);
   readonly creating = signal(false);
   readonly error = signal<string | null>(null);
   readonly success = signal<string | null>(null);
   readonly statusFilter = signal<StaffUsuarioStatus | null>(null);
+  readonly portalFilter = signal<ClientePortalFilter>('todos');
   readonly editingId = signal<string | null>(null);
   readonly editRole = signal<InvitableStaffRole>('analista_legal');
   readonly savingId = signal<string | null>(null);
   readonly busyId = signal<string | null>(null);
+  readonly portalResendingId = signal<string | null>(null);
+  readonly portalResentIds = signal<ReadonlySet<string>>(new Set());
   readonly deactivateTarget = signal<StaffUsuario | null>(null);
   readonly activateTarget = signal<StaffUsuario | null>(null);
   readonly deleteTarget = signal<StaffUsuario | null>(null);
@@ -366,11 +490,34 @@ export class UsuariosPage implements OnInit {
     role: this.fb.nonNullable.control<InvitableStaffRole>('analista_legal', Validators.required),
   });
 
+  readonly portalTotal = computed(() => this.data.mockClientes.length);
+  readonly portalRegistrados = computed(
+    () =>
+      this.data.mockClientes.filter(
+        (c) => normalizeClientePortalStatus(c.portal_status) === 'active',
+      ).length,
+  );
+  readonly clientesPortalFiltered = computed(() => {
+    const filter = this.portalFilter();
+    return this.data.mockClientes.filter((c) =>
+      matchesClientePortalFilter(c.portal_status, filter),
+    );
+  });
+
   ngOnInit(): void {
-    void this.reload();
+    if (this.auth.isSuperAdmin()) {
+      void this.reload();
+    } else {
+      this.loading.set(false);
+    }
+    void this.reloadClientesPortal();
   }
 
   async reload(): Promise<void> {
+    if (!this.auth.isSuperAdmin()) {
+      this.loading.set(false);
+      return;
+    }
     this.loading.set(true);
     this.error.set(null);
     try {
@@ -386,12 +533,71 @@ export class UsuariosPage implements OnInit {
     }
   }
 
+  async reloadClientesPortal(): Promise<void> {
+    this.portalLoading.set(true);
+    try {
+      await this.data.loadClientes();
+    } catch (error: unknown) {
+      this.error.set(this.extractHttpError(error, 'No se pudo cargar el portal de clientes.'));
+    } finally {
+      this.portalLoading.set(false);
+    }
+  }
+
   setStatusFilter(status: StaffUsuarioStatus | null): void {
+    if (!this.auth.isSuperAdmin()) return;
     this.statusFilter.set(status);
     void this.reload();
   }
 
+  portalStatusLabel(cliente: Cliente): string | null {
+    return clientePortalLabel(cliente.portal_status);
+  }
+
+  portalStatusBadgeClass(cliente: Cliente): string {
+    return normalizeClientePortalStatus(cliente.portal_status) === 'active'
+      ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+      : 'bg-amber-500/15 text-amber-700 dark:text-amber-300';
+  }
+
+  canResendCliente(cliente: Cliente): boolean {
+    return canResendClientePortalInvitation(cliente);
+  }
+
+  isClienteResendDisabled(clienteId: string): boolean {
+    return this.portalResendingId() === clienteId || this.portalResentIds().has(clienteId);
+  }
+
+  async resendClientePortal(cliente: Cliente): Promise<void> {
+    if (!this.canResendCliente(cliente) || this.isClienteResendDisabled(cliente.id)) return;
+    this.portalResendingId.set(cliente.id);
+    this.error.set(null);
+    this.success.set(null);
+    try {
+      await this.data.resendClienteInvitation(cliente.id);
+      this.portalResentIds.update((prev) => new Set(prev).add(cliente.id));
+      this.success.set(`Invitación de portal reenviada a ${cliente.email}.`);
+    } catch (error: unknown) {
+      this.error.set(this.extractHttpError(error, 'No se pudo reenviar la invitación del portal.'));
+    } finally {
+      this.portalResendingId.set(null);
+    }
+  }
+
+  private extractHttpError(error: unknown, fallback: string): string {
+    if (!(error instanceof HttpErrorResponse)) return fallback;
+    const body = error.error;
+    if (!body || typeof body !== 'object') return fallback;
+    const candidate = body as { message?: unknown };
+    if (typeof candidate.message === 'string' && candidate.message.trim()) return candidate.message;
+    if (Array.isArray(candidate.message) && typeof candidate.message[0] === 'string') {
+      return candidate.message[0];
+    }
+    return fallback;
+  }
+
   async onCreate(): Promise<void> {
+    if (!this.auth.isSuperAdmin()) return;
     if (this.createForm.invalid || this.creating()) return;
     this.creating.set(true);
     this.error.set(null);

@@ -1,5 +1,8 @@
 export type TipoPersona = 'natural' | 'juridica';
 
+/** Estado del usuario portal ligado a la ficha de cartera (GET /clientes). */
+export type ClientePortalStatus = 'none' | 'pending' | 'active' | 'expired' | 'inactive';
+
 export interface Cliente {
   id: string;
   nombre: string;
@@ -10,6 +13,8 @@ export interface Cliente {
   direccion: string;
   observaciones: string;
   created_at: string;
+  /** Presente cuando el API lo expone; ausente = desconocido (no inventar badge). */
+  portal_status?: ClientePortalStatus | null;
 }
 
 /** Tipo de unidad de cartera (ex `TipoPropiedad`). */

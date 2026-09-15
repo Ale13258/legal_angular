@@ -215,9 +215,31 @@ describe('DataService', () => {
     const resumen = service.getResumenMoraCobroParaCuenta(cuenta);
     expect(resumen.fecha_inicio_cobro).toBe('2026-08-12');
     expect(resumen.fecha_alta).toBe('2026-08-12');
+    expect(resumen.edad_mora_dias).toBeNull();
     expect(service.formatFechaCorta(resumen.fecha_inicio_cobro)).not.toBe('—');
     expect(service.formatResumenMoraTooltip(resumen)).toContain('Inicio cobro');
     expect(service.formatResumenMoraTooltip(resumen)).not.toContain('Inicio cobro: —');
+  });
+
+  it('calcula edad en mora desde fecha_inicio_cobro si el API no trae edad_mora_dias', () => {
+    const cuenta: Cuenta = {
+      id: 'prop-mora-inicio',
+      cliente_id: 'cliente-1',
+      tipo_cuenta: 'apartamento',
+      identificador: 'Apto Mora',
+      direccion: 'Calle 1',
+      notas: '',
+      ...sampleCobroCuenta,
+      saldo_inicial: 1000,
+      monto_a_la_fecha: 1000,
+      created_at: '2026-01-01T00:00:00.000Z',
+      fecha_inicio_cobro: '2026-09-01',
+      edad_mora_dias: null,
+    };
+    const resumen = service.getResumenMoraCobroParaCuenta(cuenta);
+    expect(resumen.edad_mora_dias).toBeGreaterThanOrEqual(1);
+    expect(service.formatDiasMora(resumen.edad_mora_dias)).not.toBe('—');
+    expect(service.formatEtapaCobranza(resumen.edad_mora_dias)).not.toBe('Sin dato de mora');
   });
 
   it('findClienteDuplicado detecta documento con formato distinto', () => {
@@ -874,6 +896,33 @@ describe('DataService', () => {
     const result = await updateP;
     expect(result.nombre).toBe('Después');
     expect(service.getClienteById(clienteId)?.nombre).toBe('Después');
+  });
+
+  it('resendClienteInvitation should POST and upsert portal_status', async () => {
+    const clienteId = 'cliente-1';
+    const initial: Cliente = {
+      id: clienteId,
+      nombre: 'Cliente',
+      tipo_persona: 'natural',
+      documento: '123',
+      telefono: '300',
+      email: 'a@test.com',
+      direccion: 'Calle 1',
+      observaciones: '',
+      created_at: '2026-01-01T00:00:00.000Z',
+      portal_status: 'expired',
+    };
+    const refreshed: Cliente = { ...initial, portal_status: 'pending' };
+    service['clientesSignal'].set([initial]);
+
+    const resendP = service.resendClienteInvitation(clienteId);
+    const req = httpMock.expectOne(apiUrl(`/clientes/${clienteId}/resend-invitation`));
+    expect(req.request.method).toBe('POST');
+    req.flush(refreshed);
+
+    const result = await resendP;
+    expect(result.portal_status).toBe('pending');
+    expect(service.getClienteById(clienteId)?.portal_status).toBe('pending');
   });
 
   it('updateGestion and deleteGestion should call nested routes and reload list', async () => {

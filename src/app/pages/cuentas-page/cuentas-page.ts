@@ -3,15 +3,22 @@ import { Router, RouterLink } from '@angular/router';
 import type { Cliente, Cuenta } from '../../core/models';
 import { DataService } from '../../core/services/data.service';
 import { DeudorCell } from '../../shared/deudor-cell/deudor-cell';
+import { RecordatorioPeriodoChip } from '../../shared/recordatorio-periodo-chip/recordatorio-periodo-chip';
 import { StatusBadge } from '../../shared/status-badge/status-badge';
 import { fadeInUp, fadeInUpStagger } from '../../core/animations/animations';
+import {
+  cuentaTieneRecordatorioEnPeriodo,
+  getPeriodoRecordatorio,
+  resumenRecordatoriosCliente,
+  type ResumenRecordatorios,
+} from '../../core/utils/cuenta-recordatorio-periodo';
 
 type CuentaConCliente = Cuenta & { cliente?: Cliente };
 
 @Component({
   selector: 'app-cuentas-page',
   standalone: true,
-  imports: [RouterLink, DeudorCell, StatusBadge],
+  imports: [RouterLink, DeudorCell, StatusBadge, RecordatorioPeriodoChip],
   animations: [fadeInUp, fadeInUpStagger],
   template: `
     <div class="min-h-screen">
@@ -151,6 +158,12 @@ type CuentaConCliente = Cuenta & { cliente?: Cliente };
                   <th class="text-right px-5 sm:px-6 py-3.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
                     Deuda a la fecha
                   </th>
+                  <th
+                    class="text-center px-5 sm:px-6 py-3.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide"
+                    title="Recordatorio de pago en el periodo mensual"
+                  >
+                    Recordatorio
+                  </th>
                   <th class="text-right px-5 sm:px-6 py-3.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
                     Acciones
                   </th>
@@ -159,7 +172,7 @@ type CuentaConCliente = Cuenta & { cliente?: Cliente };
               <tbody>
                 @for (group of grouped(); track group.clienteId; let gi = $index) {
                   <tr class="border-b border-border/60 bg-muted/30">
-                    <td colspan="8" class="px-5 sm:px-6 py-2.5">
+                    <td colspan="9" class="px-5 sm:px-6 py-2.5">
                       <div class="flex flex-wrap items-center justify-between gap-2">
                         <a
                           [routerLink]="['/clientes', group.clienteId]"
@@ -167,9 +180,12 @@ type CuentaConCliente = Cuenta & { cliente?: Cliente };
                         >
                           {{ group.clienteNombre }}
                         </a>
-                        <span class="text-xs text-muted-foreground">
-                          {{ group.cuentas.length === 1 ? '1 propiedad' : group.cuentas.length + ' propiedades' }}
-                        </span>
+                        <div class="flex flex-wrap items-center gap-3">
+                          <span class="text-xs text-muted-foreground">
+                            {{ group.cuentas.length === 1 ? '1 propiedad' : group.cuentas.length + ' propiedades' }}
+                          </span>
+                          <app-recordatorio-periodo-chip [resumen]="resumenRecordatoriosGrupo(group)" />
+                        </div>
                       </div>
                     </td>
                   </tr>
@@ -204,6 +220,9 @@ type CuentaConCliente = Cuenta & { cliente?: Cliente };
                       </td>
                       <td class="px-5 sm:px-6 py-4 text-right text-sm font-semibold tabular-nums text-foreground">
                         {{ data.formatDeuda(data.getDeudaActualParaCuenta(prop)) }}
+                      </td>
+                      <td class="px-5 sm:px-6 py-4 text-center" (click)="$event.stopPropagation()">
+                        <app-recordatorio-periodo-chip [enviado]="recordatorioEnviado(prop)" />
                       </td>
                       <td class="px-5 sm:px-6 py-4 text-right">
                         <a
@@ -314,6 +333,10 @@ export class CuentasPage {
     this.error.set(null);
     try {
       await Promise.all([this.data.loadClientes(), this.data.loadCuentas()]);
+      await Promise.all([
+        this.data.loadAllGestiones(),
+        this.data.loadHistorialesMissingEdadMora(this.data.mockCuentas),
+      ]);
     } catch {
       this.error.set('No se pudieron cargar las propiedades.');
     } finally {
@@ -323,6 +346,23 @@ export class CuentasPage {
 
   navigateToCuenta(id: string): void {
     this.router.navigate(['/propiedades', id]);
+  }
+
+  protected resumenRecordatoriosGrupo(group: {
+    cuentas: CuentaConCliente[];
+  }): ResumenRecordatorios {
+    return resumenRecordatoriosCliente(
+      group.cuentas.map((c) => c.id),
+      (id) => this.data.getGestionesByCuenta(id),
+      getPeriodoRecordatorio(),
+    );
+  }
+
+  protected recordatorioEnviado(p: Cuenta): boolean {
+    return cuentaTieneRecordatorioEnPeriodo(
+      this.data.getGestionesByCuenta(p.id),
+      getPeriodoRecordatorio(),
+    );
   }
 
   protected resumenCobro(p: Cuenta) {
