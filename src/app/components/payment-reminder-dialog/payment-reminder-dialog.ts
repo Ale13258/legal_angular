@@ -441,6 +441,11 @@ export class PaymentReminderDialog {
   montoPendiente = computed(() =>
     this.data.getDeudaActualParaCuenta(this.cuenta())
   );
+
+  private porcentajeHonorariosParaCuenta(p: Cuenta): number | null {
+    return this.data.getHonorariosParaCuenta(p).porcentaje;
+  }
+
   puedeEnviar = computed(() => {
     const email = this.destinatario().trim();
     const subject = this.asunto().trim();
@@ -490,6 +495,7 @@ export class PaymentReminderDialog {
             montoPendiente: this.montoPendiente(),
             phoneDisplay: REMINDER_CONTACT.phoneDisplay,
             emails: REMINDER_CONTACT.emails,
+            porcentajeHonorarios: this.porcentajeHonorariosParaCuenta(p),
           });
       this.cuerpoNgModel = cuerpo;
       this.cuerpoPersonalizado.set(cuerpo);

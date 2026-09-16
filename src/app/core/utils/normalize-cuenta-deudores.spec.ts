@@ -44,6 +44,35 @@ describe('normalize-cuenta-deudores', () => {
     ]);
   });
 
+  it('cobro_* de la unidad gana sobre emails extra del deudor maestro', () => {
+    const normalized = normalizeCuentaDeudores({
+      ...baseCuenta,
+      cobro_nombre: 'Juan Pérez',
+      cobro_tipo_persona: 'natural',
+      cobro_documento: '1234567890',
+      cobro_email: 'juan@unidad.com',
+      deudores: [
+        {
+          nombre: 'Deudor compartido',
+          tipo_persona: 'natural',
+          documento: '1234567890',
+          emails: ['becharadeborge@gmail.com', 'edificiosanmartin@yahoo.es'],
+        },
+        {
+          nombre: 'María',
+          tipo_persona: 'natural',
+          documento: '222',
+          emails: ['maria@test.com'],
+        },
+      ],
+    } as Cuenta);
+
+    expect(normalized.cobro_email).toBe('juan@unidad.com');
+    expect(normalized.deudores?.[0].nombre).toBe('Juan Pérez');
+    expect(normalized.deudores?.[0].emails).toEqual(['juan@unidad.com']);
+    expect(normalized.deudores?.[1].emails).toEqual(['maria@test.com']);
+  });
+
   it('prioriza deudores[] y espeja cobro_* desde el primero', () => {
     const normalized = normalizeCuentaDeudores({
       ...baseCuenta,
@@ -118,10 +147,10 @@ describe('normalize-cuenta-deudores', () => {
 
   it('formatNombresDeudores une todos los nombres', () => {
     const cuenta = {
-      cobro_nombre: 'Solo legado',
+      cobro_nombre: 'HELENA LUCIA CARVAJAL HURTADO',
       cobro_tipo_persona: 'natural' as const,
       cobro_documento: '1',
-      cobro_email: 'a@test.com',
+      cobro_email: 'hmvsas1@gmail.com',
       deudores: [
         {
           nombre: 'HELENA LUCIA CARVAJAL HURTADO',

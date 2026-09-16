@@ -30,6 +30,12 @@ describe('payment-reminder-legal-body', () => {
     expect(paragraphs.at(-1)).toContain('Departamento de Cartera');
   });
 
+  it('usa el porcentaje de honorarios informado en el contexto', () => {
+    const paragraphs = buildLegalReminderBodyPlain({ ...ctx, porcentajeHonorarios: 15 });
+    expect(paragraphs.some((p) => p.includes('más el 15%'))).toBe(true);
+    expect(paragraphs.some((p) => p.includes('más el 10%'))).toBe(false);
+  });
+
   it('genera HTML de párrafos para Quill sin envoltorio de marca', () => {
     const html = buildLegalReminderBodyHtml(ctx);
     expect(html).toContain('<p>Respetados Señores:</p>');

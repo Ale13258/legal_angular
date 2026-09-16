@@ -1,7 +1,14 @@
 import { Component, input } from '@angular/core';
 import { DataService } from '../../core/services/data.service';
 
-type BalanceCardIcon = 'cartera' | 'clientes' | 'cuentas' | 'cobrado' | 'pagado' | 'saldo';
+type BalanceCardIcon =
+  | 'cartera'
+  | 'clientes'
+  | 'cuentas'
+  | 'cobrado'
+  | 'pagado'
+  | 'saldo'
+  | 'honorarios';
 
 @Component({
   selector: 'app-balance-card',
@@ -38,6 +45,9 @@ type BalanceCardIcon = 'cartera' | 'clientes' | 'cuentas' | 'cobrado' | 'pagado'
               }
               @case ('saldo') {
                 <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 16 3-8 3 8"/><path d="M2 16 5 8l3 8"/><path d="M7 21h10"/><path d="M12 3v18"/><path d="M3 12h2"/><path d="M19 12h2"/></svg>
+              }
+              @case ('honorarios') {
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M12 18v-6"/><path d="M9 15h6"/></svg>
               }
             }
           </span>

@@ -1,5 +1,10 @@
 import { HttpParams } from '@angular/common/http';
 import { Injectable, inject, signal } from '@angular/core';
+import {
+  calcularHonorarios,
+  resolverProcesoParaCuenta,
+  type HonorariosResultado,
+} from '../honorarios';
 import { etiquetaCortaParaDiasMora, etiquetaParaDiasMora } from '../mora-etapas';
 import { buildMoraPorCliente, type MoraPorClienteRow } from '../mora-por-cliente';
 import { ETAPA_PROCESO_LABELS, etiquetaEtapaProceso } from '../proceso-etapas';
@@ -69,11 +74,13 @@ export type UpdateCuentaPayload = {
   cobro_email?: string;
   deudores?: DeudorCobro[];
   fecha_inicio_cobro?: string | null;
+  /** `null` limpia el override y vuelve al % sugerido. */
+  honorarios_monto?: number | null;
 };
 
 export type CreateProcesoLegalPayload = {
   cliente_id: string;
-  cuenta_id?: string;
+  cuenta_id: string;
   numero_cuenta: string;
   tipo: TipoProcesoLegal;
   estado: EstadoProcesoLegal;
@@ -1003,6 +1010,74 @@ export class DataService {
     return this.metricsDashboardSignal().total_cartera;
   }
 
+  /**
+   * Honorarios de una cuenta: misma regla que detalle de cliente / recordatorio
+   * (override manual, % por radicado, o fallback por edad en mora).
+   */
+  getHonorariosParaCuenta(p: Cuenta): HonorariosResultado {
+    const procesos = this.getProcesosLegalesByCliente(p.cliente_id);
+    const proceso = resolverProcesoParaCuenta(p.id, procesos);
+    const resumen = this.getResumenMoraCobroParaCuenta(p);
+    return calcularHonorarios({
+      deuda: this.getDeudaActualParaCuenta(p),
+      tipo: proceso?.tipo,
+      etapa: proceso?.etapa_proceso,
+      overrideMonto: p.honorarios_monto,
+      edadMoraDias: resumen.edad_mora_dias,
+    });
+  }
+
+  /** Suma de honorarios (sugeridos o manuales) de todas las propiedades del sistema. */
+  getTotalHonorarios(): number {
+    return this.sumHonorariosCentavos(this.cuentasSignal()) / 100;
+  }
+
+  /** Total de honorarios de un subconjunto de cuentas (p. ej. un cliente). */
+  getTotalHonorariosParaCuentas(cuentas: readonly Cuenta[]): number {
+    return this.sumHonorariosCentavos(cuentas) / 100;
+  }
+
+  /**
+   * Honorarios agregados por cliente (solo filas con monto &gt; 0),
+   * ordenados de mayor a menor.
+   */
+  getHonorariosPorCliente(): {
+    cliente_id: string;
+    nombre: string;
+    honorarios: number;
+    deuda: number;
+    porcentaje_del_total: number;
+  }[] {
+    const total = this.getTotalHonorarios();
+    const rows = this.clientesSignal().map((c) => {
+      const props = this.cuentasSignal().filter((p) => p.cliente_id === c.id);
+      const honorarios = this.getTotalHonorariosParaCuentas(props);
+      const deuda = props.reduce((sum, p) => sum + this.getDeudaActualParaCuenta(p), 0);
+      return {
+        cliente_id: c.id,
+        nombre: c.nombre?.trim() || 'Sin nombre',
+        honorarios,
+        deuda,
+        porcentaje_del_total:
+          total > 0 ? Math.round((honorarios / total) * 1000) / 10 : 0,
+      };
+    });
+    return rows
+      .filter((r) => r.honorarios > 0)
+      .sort((a, b) => {
+        if (b.honorarios !== a.honorarios) return b.honorarios - a.honorarios;
+        return a.nombre.localeCompare(b.nombre, 'es');
+      });
+  }
+
+  private sumHonorariosCentavos(cuentas: readonly Cuenta[]): number {
+    return cuentas.reduce((sum, p) => {
+      const monto = this.getHonorariosParaCuenta(p).monto;
+      if (monto == null || !Number.isFinite(monto)) return sum;
+      return sum + Math.round(monto * 100);
+    }, 0);
+  }
+
   getClientesActivos(): number {
     return this.metricsDashboardSignal().clientes_activos;
   }
@@ -1149,6 +1224,9 @@ export class DataService {
     const propiedadConSaldo: Cuenta = {
       ...(nuevoSaldo != null ? { ...cuenta, saldo_inicial: nuevoSaldo } : cuenta),
       deudores: mergeDeudoresAfterWrite(cuenta.deudores, payload.deudores, prevCuenta?.deudores),
+      ...(payload.honorarios_monto !== undefined
+        ? { honorarios_monto: payload.honorarios_monto }
+        : {}),
     };
     const prevConSaldo =
       nuevoSaldo != null && prevCuenta
@@ -1243,14 +1321,12 @@ export class DataService {
   async createProcesoLegal(payload: CreateProcesoLegalPayload): Promise<ProcesoLegal> {
     const body: Record<string, unknown> = {
       cliente_id: payload.cliente_id,
+      cuenta_id: payload.cuenta_id,
       numero_cuenta: payload.numero_cuenta,
       tipo: payload.tipo,
       estado: payload.estado,
       etapa_proceso: payload.etapa_proceso,
     };
-    if (payload.cuenta_id) {
-      body['cuenta_id'] = payload.cuenta_id;
-    }
     const cuenta = await this.http.post<ProcesoLegal>('/procesos-legales', body);
     await this.loadProcesosLegalesByCliente(payload.cliente_id);
     await this.loadMetricsDashboard();
@@ -1625,10 +1701,15 @@ export class DataService {
       fecha_inicio_cobro: this.normalizeFechaYmd(withDeudores.fecha_inicio_cobro) ?? prev?.fecha_inicio_cobro ?? null,
       fecha_fin_cobro: this.normalizeFechaYmd(withDeudores.fecha_fin_cobro) ?? prev?.fecha_fin_cobro ?? null,
     };
+    const honorarios_monto =
+      withDeudores.honorarios_monto !== undefined
+        ? withDeudores.honorarios_monto
+        : (prev?.honorarios_monto ?? null);
     if (Number.isFinite(monto)) {
       return {
         ...withDeudores,
         ...fechas,
+        honorarios_monto,
         saldo_inicial: normalizedSaldoInicial,
         monto_a_la_fecha: Math.max(0, monto),
       };
@@ -1636,6 +1717,7 @@ export class DataService {
     return {
       ...withDeudores,
       ...fechas,
+      honorarios_monto,
       saldo_inicial: normalizedSaldoInicial,
       // Si el detalle no trae monto válido, preservamos el último valor conocido (saldo inicial/monto cargado).
       monto_a_la_fecha: Math.max(0, Number(prev?.monto_a_la_fecha ?? 0)),

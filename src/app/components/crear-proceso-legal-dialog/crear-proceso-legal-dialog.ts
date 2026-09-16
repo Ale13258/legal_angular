@@ -10,6 +10,7 @@ import {
   ETAPAS_PROCESO_ORDENADAS,
   coerceEtapaProceso,
 } from '../../core/proceso-etapas';
+import { mapProcesoLegalSaveError } from './proceso-legal-save-error';
 
 @Component({
   selector: 'app-crear-proceso-legal-dialog',
@@ -92,18 +93,18 @@ import {
 
           @if (!cuenta()) {
             <div>
-              <label class="block text-sm font-medium text-foreground mb-1.5">Cuenta (opcional)</label>
+              <label class="block text-sm font-medium text-foreground mb-1.5">Cuenta</label>
               <select
                 [value]="cuentaId()"
                 (change)="cuentaId.set($any($event.target).value)"
                 class="w-full rounded-xl border border-input bg-background px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
               >
-                <option value="">Sin vincular</option>
+                <option value="">Selecciona una propiedad</option>
                 @for (p of cuentas(); track p.id) {
                   <option [value]="p.id">{{ p.identificador }} — {{ p.direccion }}</option>
                 }
               </select>
-              <p class="text-xs text-muted-foreground mt-1">Si aplica, asocia la cuenta a una propiedad del cliente.</p>
+              <p class="text-xs text-muted-foreground mt-1">El radicado debe asociarse a una propiedad del cliente.</p>
             </div>
           }
 
@@ -146,7 +147,7 @@ export class CrearProcesoLegalDialog {
   tipo = signal<TipoProcesoLegal>('juridica');
   estado = signal<EstadoProcesoLegal>('en_proceso');
   etapa = signal<EtapaProceso>(ETAPA_PROCESO_DEFAULT);
-  /** '' = sin cuenta */
+  /** '' = aún no eligió propiedad (alta). */
   cuentaId = signal('');
 
   saving = signal(false);
@@ -219,11 +220,15 @@ export class CrearProcesoLegalDialog {
       this.errorMsg.set('Indica el No. RADICADO.');
       return;
     }
+    const current = this.cuenta();
+    const pid = this.cuentaId().trim();
+    if (!current && !pid) {
+      this.errorMsg.set('Asocia el radicado a una propiedad del cliente.');
+      return;
+    }
     this.errorMsg.set(null);
     this.saving.set(true);
     try {
-      const pid = this.cuentaId().trim();
-      const current = this.cuenta();
       if (current) {
         await this.data.updateProcesoLegal(current.id, {
           numero_cuenta: num,
@@ -235,22 +240,18 @@ export class CrearProcesoLegalDialog {
       } else {
         await this.data.createProcesoLegal({
           cliente_id: this.clienteId(),
+          cuenta_id: pid,
           numero_cuenta: num,
           tipo: this.tipo(),
           estado: this.estado(),
           etapa_proceso: this.etapa(),
-          ...(pid ? { cuenta_id: pid } : {}),
         });
       }
       this.reset();
       this.created.emit();
       this.openChange.emit(false);
-    } catch {
-      this.errorMsg.set(
-        this.cuenta()
-          ? 'No se pudo editar el radicado. Revisa los datos o el servidor e intenta de nuevo.'
-          : 'No se pudo crear el radicado. Revisa los datos o el servidor e intenta de nuevo.'
-      );
+    } catch (error: unknown) {
+      this.errorMsg.set(mapProcesoLegalSaveError(error, current ? 'edit' : 'create'));
     } finally {
       this.saving.set(false);
     }

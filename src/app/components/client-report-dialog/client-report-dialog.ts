@@ -26,6 +26,7 @@ import {
 import {
   buildClienteCobradoPagadoChartData,
   buildClienteDeudaPorCuentaChartData,
+  buildClienteHonorariosPorCuentaChartData,
   buildClienteRecaudoUltimosMesesChartData,
   buildClienteResumenFinancieroChartData,
   buildClienteUnidadesPorEdadMoraChartData,
@@ -81,7 +82,7 @@ import {
             <p><strong class="text-foreground">Cliente:</strong> {{ cliente().nombre }}</p>
           </div>
 
-          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             <div class="min-w-0 rounded-xl border border-border/50 bg-muted/50 p-4">
               <p class="text-xs text-muted-foreground mb-1 text-center">Cobrado</p>
               <p class="font-bold tabular-nums text-foreground text-center text-lg leading-tight break-words">
@@ -98,6 +99,12 @@ import {
               <p class="text-xs text-muted-foreground mb-1 text-center">Deuda a la fecha</p>
               <p class="font-bold tabular-nums text-primary text-center text-lg leading-tight break-words">
                 {{ data.formatCurrency(saldo()) }}
+              </p>
+            </div>
+            <div class="min-w-0 rounded-xl border border-border/50 bg-muted/50 p-4">
+              <p class="text-xs text-muted-foreground mb-1 text-center">Honorarios</p>
+              <p class="font-bold tabular-nums text-foreground text-center text-lg leading-tight break-words">
+                {{ data.formatCurrency(totalHonorarios()) }}
               </p>
             </div>
           </div>
@@ -169,6 +176,20 @@ import {
             </div>
           }
 
+          @if (barHonorariosUnidadData(); as honorariosChart) {
+            <div class="rounded-xl border border-border p-4">
+              <h3 class="text-sm font-semibold text-foreground mb-3">Honorarios por unidad</h3>
+              <div [style.height.px]="honorariosChartHeight()">
+                <canvas
+                  baseChart
+                  [data]="honorariosChart"
+                  [options]="barDeudaUnidadOptions"
+                  type="bar"
+                ></canvas>
+              </div>
+            </div>
+          }
+
           @if (hasCobradoPagadoChart()) {
             <div class="rounded-xl border border-border p-4">
               <h3 class="text-sm font-semibold text-foreground mb-3">Cobrado vs Pagado por periodo</h3>
@@ -230,6 +251,7 @@ import {
                     <th class="text-left px-3 py-2 font-semibold text-muted-foreground">Correo</th>
                     <th class="text-right px-3 py-2 font-semibold text-muted-foreground">Edad en mora</th>
                     <th class="text-right px-3 py-2 font-semibold text-muted-foreground">Deuda a la fecha</th>
+                    <th class="text-right px-3 py-2 font-semibold text-muted-foreground">Honorarios</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -258,6 +280,13 @@ import {
                       </td>
                       <td class="px-3 py-2 text-right tabular-nums font-semibold align-top whitespace-nowrap">
                         {{ data.formatDeuda(row.deuda) }}
+                      </td>
+                      <td class="px-3 py-2 text-right tabular-nums align-top whitespace-nowrap">
+                        @if (row.honorarios != null) {
+                          {{ data.formatCurrency(row.honorarios) }}
+                        } @else {
+                          <span class="text-muted-foreground">—</span>
+                        }
                       </td>
                     </tr>
                   }
@@ -410,6 +439,7 @@ export class ClientReportDialog {
   saldo = computed(() =>
     this.cuentas().reduce((sum, p) => sum + this.data.getDeudaActualParaCuenta(p), 0)
   );
+  totalHonorarios = computed(() => this.data.getTotalHonorariosParaCuentas(this.cuentas()));
 
   resumenPorCuenta = computed(() =>
     buildClientReportResumenRows(this.data, this.cuentas()),
@@ -449,6 +479,18 @@ export class ClientReportDialog {
   );
 
   readonly barDeudaUnidadOptions = PREVIEW_CHART_DEUDA_UNIDAD_OPTIONS;
+
+  readonly barHonorariosUnidadData = computed(() =>
+    buildClienteHonorariosPorCuentaChartData(this.data, this.cuentas(), {
+      palette: this.chartPalette(),
+    }),
+  );
+
+  readonly honorariosChartHeight = computed(() => {
+    const chart = this.barHonorariosUnidadData();
+    const n = chart?.labels?.length ?? 0;
+    return suggestedUnidadChartHeightPx(n || 1);
+  });
 
   readonly barCobradoPagadoData = computed((): ChartConfiguration<'bar'>['data'] =>
     buildClienteCobradoPagadoChartData(buildHistorialConCuenta(this.data, this.cuentas())),
@@ -525,10 +567,11 @@ export class ClientReportDialog {
       ['Total Cobrado', this.data.formatCurrency(this.totalCobrado())],
       ['Total Pagado', this.data.formatCurrency(this.totalPagado())],
       ['Deuda a la fecha', this.data.formatCurrency(this.saldo())],
+      ['Honorarios', this.data.formatCurrency(this.totalHonorarios())],
       ...(notas ? [[], ['Notas', notas], []] : []),
       [],
       ['Por cuenta (unidad)'],
-      ['Unidad', 'Deudor', 'Documento', 'Correo', 'Edad en mora', 'Deuda a la fecha'],
+      ['Unidad', 'Deudor', 'Documento', 'Correo', 'Edad en mora', 'Deuda a la fecha', 'Honorarios'],
       ...resumenRows,
       [],
       ['Detalle de transacciones'],
@@ -583,13 +626,14 @@ export class ClientReportDialog {
         ['Total Cobrado', this.data.formatCurrency(this.totalCobrado())],
         ['Total Pagado', this.data.formatCurrency(this.totalPagado())],
         ['Deuda a la fecha', this.data.formatCurrency(this.saldo())],
+        ['Honorarios', this.data.formatCurrency(this.totalHonorarios())],
       ]),
       ...(notas
         ? [buildSubheading('Notas'), buildParagraph(notas), buildSpacer()]
         : [buildSpacer()]),
       buildSubheading('Por cuenta (unidad)'),
       buildTable(
-        ['Unidad', 'Deudor', 'Documento', 'Correo', 'Edad en mora', 'Deuda a la fecha'],
+        ['Unidad', 'Deudor', 'Documento', 'Correo', 'Edad en mora', 'Deuda a la fecha', 'Honorarios'],
         resumen.map((row) => this.resumenCuentaExportRow(row)),
       ),
       buildSpacer(),

@@ -80,6 +80,11 @@ export interface Cuenta {
   fecha_inicio_cobro?: string | null;
   /** Fecha en que la deuda llega a cero según backend o heurística de historial en cliente. */
   fecha_fin_cobro?: string | null;
+  /**
+   * Honorarios negociados (override). Si ausente/null, se calcula % de la deuda
+   * según tipo/etapa del radicado vinculado.
+   */
+  honorarios_monto?: number | null;
 }
 
 /** @deprecated Use `Cuenta`. */

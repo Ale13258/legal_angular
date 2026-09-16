@@ -71,12 +71,18 @@ type DashboardRow = {
             {{ error() }}
           </div>
         }
-        <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 mb-8">
+        <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-8">
           <app-balance-card
             label="CARTERA TOTAL"
             [amount]="totalCartera()"
             variant="highlight"
             icon="cartera"
+            [accentLeft]="true"
+          />
+          <app-balance-card
+            label="HONORARIOS"
+            [amount]="totalHonorarios()"
+            icon="honorarios"
             [accentLeft]="true"
           />
           <app-balance-card
@@ -267,6 +273,7 @@ export class DashboardPage {
   });
 
   totalCartera = computed(() => this.data.getTotalCartera());
+  totalHonorarios = computed(() => this.data.getTotalHonorarios());
   clientesActivos = computed(() => this.data.getClientesActivos());
   procesosLegalesActivos = computed(() => this.data.getProcesosLegalesActivos());
 

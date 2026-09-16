@@ -53,13 +53,19 @@ import { pickClienteMasAntiguo } from '../../core/mora-por-cliente';
         }
         <div
           [@fadeInUp]="{ value: '', params: { delay: 0, duration: 400, offset: 10, ease: 'ease-out' } }"
-          class="grid grid-cols-1 md:grid-cols-3 gap-4"
+          class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4"
         >
           <app-balance-card
             label="CARTERA TOTAL"
             [amount]="totalCartera()"
             variant="highlight"
             icon="cartera"
+            [accentLeft]="true"
+          />
+          <app-balance-card
+            label="HONORARIOS"
+            [amount]="totalHonorarios()"
+            icon="honorarios"
             [accentLeft]="true"
           />
           <app-balance-card
@@ -144,6 +150,39 @@ import { pickClienteMasAntiguo } from '../../core/mora-por-cliente';
             </div>
           }
         </div>
+
+        <div
+          [@fadeInUp]="{ value: '', params: { delay: 200, duration: 400, offset: 10, ease: 'ease-out' } }"
+          class="interactive-card bg-card rounded-2xl shadow-card p-4 sm:p-6 border border-border/50 min-w-0"
+        >
+          <div class="flex flex-wrap items-baseline justify-between gap-2 mb-3">
+            <h3 class="font-display font-bold text-foreground">Honorarios por cliente</h3>
+            @if (totalHonorarios() > 0) {
+              <p class="text-xs text-muted-foreground">
+                Total: <strong class="text-foreground">{{ data.formatCurrency(totalHonorarios()) }}</strong>
+              </p>
+            }
+          </div>
+          @if (hasHonorariosClienteData()) {
+            @if (honorariosChartTruncado()) {
+              <p class="text-xs text-muted-foreground mb-2">
+                Mostrando los {{ honorariosChartRows().length }} clientes con mayor honorarios.
+              </p>
+            }
+            <div class="h-[250px]">
+              <canvas
+                baseChart
+                [data]="barHonorariosClienteData()"
+                [options]="barHonorariosClienteOptions()"
+                type="bar"
+              ></canvas>
+            </div>
+          } @else {
+            <div class="h-[250px] rounded-xl bg-muted/30 flex items-center justify-center text-sm text-muted-foreground text-center px-6">
+              No hay honorarios calculables para graficar.
+            </div>
+          }
+        </div>
       </div>
 
       @if (reportOpen()) {
@@ -163,6 +202,7 @@ export class GraficosPage {
   pieOptions: ChartConfiguration<'pie'>['options'] = { responsive: true, maintainAspectRatio: false };
 
   totalCartera = computed(() => this.data.getTotalCartera());
+  totalHonorarios = computed(() => this.data.getTotalHonorarios());
   clientesCount = computed(() => this.data.mockClientes.length);
   propiedadesCount = computed(() => this.data.mockCuentas.length);
 
@@ -292,6 +332,77 @@ export class GraficosPage {
           position: 'right',
           grid: { drawOnChartArea: false },
           ticks: { font: { size: 10 } },
+        },
+      },
+    };
+  });
+
+  honorariosPorCliente = computed(() => this.data.getHonorariosPorCliente());
+  hasHonorariosClienteData = computed(() => this.honorariosPorCliente().length > 0);
+  private readonly honorariosChartLimit = 8;
+  honorariosChartRows = computed(() =>
+    this.honorariosPorCliente().slice(0, this.honorariosChartLimit),
+  );
+  honorariosChartTruncado = computed(
+    () => this.honorariosPorCliente().length > this.honorariosChartLimit,
+  );
+
+  barHonorariosClienteData = computed((): ChartConfiguration<'bar'>['data'] => {
+    const rows = this.honorariosChartRows();
+    return {
+      labels: rows.map((r) => this.truncateLabel(r.nombre)),
+      datasets: [
+        {
+          data: rows.map((r) => r.honorarios),
+          label: 'Honorarios',
+          backgroundColor: '#6b3cc8',
+          maxBarThickness: 28,
+        },
+      ],
+    };
+  });
+
+  barHonorariosClienteOptions = computed((): ChartConfiguration<'bar'>['options'] => {
+    const rows = this.honorariosChartRows();
+    return {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            afterBody: (items) => {
+              const idx = items[0]?.dataIndex ?? -1;
+              const row = rows[idx];
+              if (!row) return [];
+              return [
+                `Deuda: ${this.data.formatCurrency(row.deuda)}`,
+                `% del total honorarios: ${this.data.formatPorcentaje(row.porcentaje_del_total)}`,
+              ];
+            },
+            label: (item) => {
+              const v = typeof item.raw === 'number' ? item.raw : Number(item.raw);
+              return `Honorarios: ${this.data.formatCurrency(Number.isFinite(v) ? v : 0)}`;
+            },
+          },
+        },
+      },
+      scales: {
+        x: {
+          ticks: { maxRotation: 40, minRotation: 0, autoSkip: true, font: { size: 10 } },
+        },
+        y: {
+          beginAtZero: true,
+          ticks: {
+            font: { size: 10 },
+            callback: (value) => {
+              const n = typeof value === 'number' ? value : Number(value);
+              if (!Number.isFinite(n)) return String(value);
+              if (Math.abs(n) >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`;
+              if (Math.abs(n) >= 1_000) return `$${(n / 1_000).toFixed(0)}k`;
+              return `$${n}`;
+            },
+          },
         },
       },
     };
