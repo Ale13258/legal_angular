@@ -9,6 +9,8 @@ export type LegalReminderBodyContext = {
   montoPendiente: number;
   phoneDisplay: string;
   emails: readonly string[];
+  /** % de honorarios a mencionar; por defecto 10 (pre-jurídico). */
+  porcentajeHonorarios?: number | null;
 };
 
 export type PaymentReminderComposeDraft = {
@@ -46,15 +48,24 @@ export function splitCustomBodyParagraphs(text: string): string[] {
     .filter(Boolean);
 }
 
+function honorariosPctTexto(ctx: LegalReminderBodyContext): string {
+  const pct = ctx.porcentajeHonorarios;
+  if (pct != null && Number.isFinite(pct) && pct > 0) {
+    return `${pct}%`;
+  }
+  return '10%';
+}
+
 export function buildLegalReminderBodyPlain(ctx: LegalReminderBodyContext): string[] {
   const propiedad = ctx.identificador.trim() || '—';
   const monto = montoLegalTexto(ctx.montoPendiente);
+  const pct = honorariosPctTexto(ctx);
 
   return [
     'Respetados Señores:',
     `De acuerdo con el estado de cuenta anexo, la propiedad ${propiedad}, se encuentra en mora en el pago de gastos comunes de administración, lo cual genera intereses moratorios de acuerdo con lo establecido en la Ley 675 de 2001.`,
     'Es importante mencionar que el pago puntual de las cuotas de administración es fundamental para el correcto funcionamiento del edificio, ya que permite cubrir los gastos relacionados con el mantenimiento de las zonas comunes, la prestación de servicios públicos y la seguridad de la copropiedad, motivo por el que la administración solicitó a nuestra firma el inicio de las acciones legales para obtener el pronto pago de las obligaciones en mora.',
-    `Sin embargo, antes de iniciar el proceso judicial, solicitamos realizar el pago de la deuda pendiente, que, conforme al estado de cuenta anexo, adeuda la suma ${monto} más el 10% por concepto de honorarios profesionales de abogado generados por la gestión de cobro pre jurídico.`,
+    `Sin embargo, antes de iniciar el proceso judicial, solicitamos realizar el pago de la deuda pendiente, que, conforme al estado de cuenta anexo, adeuda la suma ${monto} más el ${pct} por concepto de honorarios profesionales de abogado generados por la gestión de cobro pre jurídico.`,
     'Recuerde que de no ser posible el pago total de la deuda, usted puede suscribir un acuerdo de pago con el fin de no seguir acumulando intereses y prevenir futuros cobros por vía judicial, puede responder a este correo con una oferta según su capacidad de pago para ser revisada junto con la administración.',
     'Agradecemos su atención a esta solicitud y esperamos contar con su pronta respuesta.',
     'Si ya realizó el pago, por favor haga caso omiso de esta comunicación y envíenos el soporte respectivo.',
@@ -68,12 +79,13 @@ export function buildLegalReminderBodyHtml(ctx: LegalReminderBodyContext): strin
   const propiedad = escapeHtml(ctx.identificador.trim() || '—');
   const monto = escapeHtml(montoLegalTexto(ctx.montoPendiente));
   const inquietudes = escapeHtml(inquietudesTexto(ctx));
+  const pct = escapeHtml(honorariosPctTexto(ctx));
 
   return [
     '<p>Respetados Señores:</p>',
     `<p>De acuerdo con el estado de cuenta anexo, la propiedad ${propiedad}, se encuentra en mora en el pago de gastos comunes de administración, lo cual genera intereses moratorios de acuerdo con lo establecido en la Ley 675 de 2001.</p>`,
     '<p>Es importante mencionar que el pago puntual de las cuotas de administración es fundamental para el correcto funcionamiento del edificio, ya que permite cubrir los gastos relacionados con el mantenimiento de las zonas comunes, la prestación de servicios públicos y la seguridad de la copropiedad, motivo por el que la administración solicitó a nuestra firma el inicio de las acciones legales para obtener el pronto pago de las obligaciones en mora.</p>',
-    `<p>Sin embargo, antes de iniciar el proceso judicial, solicitamos realizar el pago de la deuda pendiente, que, conforme al estado de cuenta anexo, adeuda la suma ${monto} más el 10% por concepto de honorarios profesionales de abogado generados por la gestión de cobro pre jurídico.</p>`,
+    `<p>Sin embargo, antes de iniciar el proceso judicial, solicitamos realizar el pago de la deuda pendiente, que, conforme al estado de cuenta anexo, adeuda la suma ${monto} más el ${pct} por concepto de honorarios profesionales de abogado generados por la gestión de cobro pre jurídico.</p>`,
     '<p>Recuerde que de no ser posible el pago total de la deuda, usted puede suscribir un acuerdo de pago con el fin de no seguir acumulando intereses y prevenir futuros cobros por vía judicial, puede responder a este correo con una oferta según su capacidad de pago para ser revisada junto con la administración.</p>',
     '<p>Agradecemos su atención a esta solicitud y esperamos contar con su pronta respuesta.</p>',
     '<p>Si ya realizó el pago, por favor haga caso omiso de esta comunicación y envíenos el soporte respectivo.</p>',

@@ -6,6 +6,7 @@ import { renderChartToPng, type ChartPngResult } from './chart-to-png';
 import {
   buildClienteCobradoPagadoChartData,
   buildClienteDeudaPorCuentaChartData,
+  buildClienteHonorariosPorCuentaChartData,
   buildClienteRecaudoUltimosMesesChartData,
   buildClienteResumenFinancieroChartData,
   buildClienteUnidadesPorEdadMoraChartData,
@@ -30,6 +31,7 @@ export type ClientReportResumenRow = {
   documentoLabel: string;
   correo: string;
   deuda: number;
+  honorarios: number | null;
   edad_mora_dias: number | null;
   fecha_inicio_cobro: string | null;
   fecha_fin_cobro: string | null;
@@ -50,6 +52,7 @@ export function buildClientReportResumenRows(
       documentoLabel: documento === '—' ? '—' : `${docLabel} ${documento}`,
       correo: data.formatDeudorEmailCorto(p) || '—',
       deuda: data.getDeudaActualParaCuenta(p),
+      honorarios: data.getHonorariosParaCuenta(p).monto,
       edad_mora_dias: r.edad_mora_dias,
       fecha_inicio_cobro: r.fecha_inicio_cobro,
       fecha_fin_cobro: r.fecha_fin_cobro,
@@ -74,12 +77,14 @@ export function resumenCuentaPdfRow(data: DataService, row: ClientReportResumenR
     row.correo,
     mora,
     data.formatDeuda(row.deuda),
+    row.honorarios != null ? data.formatCurrency(row.honorarios) : '—',
   ];
 }
 
 export type ClientReportChartImages = {
   resumenFinanciero: ChartPngResult | null;
   deudaPorUnidad: ChartPngResult | null;
+  honorariosPorUnidad: ChartPngResult | null;
   cobradoPagado: ChartPngResult | null;
   pagadoPorPeriodo: ChartPngResult | null;
   unidadesPorEdadMora: ChartPngResult | null;
@@ -125,6 +130,24 @@ export function buildClientReportChartImages(
         )
       : null;
 
+  const honorariosData = buildClienteHonorariosPorCuentaChartData(data, cuentas, { palette });
+  const honorariosPorUnidad = honorariosData
+    ? renderChartToPng(
+        {
+          type: 'bar',
+          data: honorariosData,
+          options: CLIENT_CHART_BAR_HORIZONTAL_OPTIONS,
+        },
+        {
+          width: 900,
+          height: Math.min(
+            700,
+            Math.max(280, 56 + (honorariosData.labels?.length ?? 1) * 36),
+          ),
+        },
+      )
+    : null;
+
   const cobradoPagado =
     historial.length > 0
       ? renderChartToPng(
@@ -169,6 +192,7 @@ export function buildClientReportChartImages(
   return {
     resumenFinanciero,
     deudaPorUnidad,
+    honorariosPorUnidad,
     cobradoPagado,
     pagadoPorPeriodo,
     unidadesPorEdadMora,
@@ -227,6 +251,7 @@ export function downloadClientGeneralReportPdf(options: {
   const totalCobrado = cuentas.reduce((sum, p) => sum + data.getTotalCobradoParaCuenta(p), 0);
   const totalPagado = cuentas.reduce((sum, p) => sum + data.getTotalPagadoParaCuenta(p), 0);
   const saldo = cuentas.reduce((sum, p) => sum + data.getDeudaActualParaCuenta(p), 0);
+  const totalHonorarios = data.getTotalHonorariosParaCuentas(cuentas);
   const resumen = buildClientReportResumenRows(data, cuentas);
   const transacciones = cuentas.flatMap((p) => {
     const hist = data.getHistorialByCuenta(p.id);
@@ -251,8 +276,9 @@ export function downloadClientGeneralReportPdf(options: {
   doc.setFont(undefined as unknown as string, 'bold');
   doc.text(`Deuda a la fecha: ${data.formatCurrency(saldo)}`, 14, 65);
   doc.setFont(undefined as unknown as string, 'normal');
+  doc.text(`Honorarios: ${data.formatCurrency(totalHonorarios)}`, 14, 71);
 
-  let startY = 74;
+  let startY = 80;
   if (notas) {
     doc.setFontSize(10);
     doc.text('Notas:', 14, startY);
@@ -267,6 +293,9 @@ export function downloadClientGeneralReportPdf(options: {
   }
   if (charts.deudaPorUnidad) {
     startY = appendChartToPdf(doc, 'Deuda a la fecha por unidad', charts.deudaPorUnidad, startY);
+  }
+  if (charts.honorariosPorUnidad) {
+    startY = appendChartToPdf(doc, 'Honorarios por unidad', charts.honorariosPorUnidad, startY);
   }
   if (charts.cobradoPagado) {
     startY = appendChartToPdf(
@@ -299,7 +328,7 @@ export function downloadClientGeneralReportPdf(options: {
   startY += 6;
   autoTable(doc, {
     startY,
-    head: [['Unidad', 'Deudor', 'Documento', 'Correo', 'Edad en mora', 'Deuda a la fecha']],
+    head: [['Unidad', 'Deudor', 'Documento', 'Correo', 'Edad en mora', 'Deuda a la fecha', 'Honorarios']],
     body: resumen.map((row) => resumenCuentaPdfRow(data, row)),
     styles: { fontSize: 8 },
     headStyles: { fillColor: [107, 60, 200] },

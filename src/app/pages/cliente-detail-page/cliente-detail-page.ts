@@ -29,10 +29,12 @@ import type { ProcesoLegal, DeudorCobro, Cuenta, TipoPersona, TipoCuenta } from 
 import { formatMontoColombiano } from '../../core/utils/format-monto-colombiano';
 import { resolveDeudores } from '../../core/utils/normalize-cuenta-deudores';
 import { parseMontoColombiano } from '../../core/utils/parse-monto-colombiano';
+import { mapCuentaSaveError } from './cuenta-save-error';
 import {
   cuentaTieneRecordatorioEnPeriodo,
   getPeriodoRecordatorio,
 } from '../../core/utils/cuenta-recordatorio-periodo';
+import type { HonorariosResultado } from '../../core/honorarios';
 
 const MAX_DEUDORES = 10;
 const MAX_EMAILS_POR_DEUDOR = 5;
@@ -142,6 +144,14 @@ function deudorContactoValidator(group: AbstractControl): ValidationErrors | nul
                 icon="saldo"
                 [accentLeft]="true"
               />
+              @if (totalHonorarios() > 0) {
+                <app-balance-card
+                  label="Honorarios"
+                  [amount]="totalHonorarios()"
+                  icon="honorarios"
+                  [accentLeft]="true"
+                />
+              }
               <button
                 type="button"
                 (click)="clientReportOpen.set(true)"
@@ -169,17 +179,18 @@ function deudorContactoValidator(group: AbstractControl): ValidationErrors | nul
               </button>
             </div>
             <div class="table-wrap">
-              <table class="w-full min-w-[80rem] table-fixed">
+              <table class="w-full min-w-[92rem] table-fixed">
                 <colgroup>
-                  <col class="w-[12%]" />
-                  <col class="w-[10%]" />
-                  <col class="w-[10%]" />
-                  <col class="w-[12%]" />
-                  <col class="w-[12%]" />
+                  <col class="w-[11%]" />
+                  <col class="w-[8%]" />
+                  <col class="w-[9%]" />
+                  <col class="w-[11%]" />
+                  <col class="w-[11%]" />
+                  <col class="w-[9%]" />
                   <col class="w-[10%]" />
                   <col class="w-[11%]" />
-                  <col class="w-[10%]" />
-                  <col class="w-[13%]" />
+                  <col class="w-[8%]" />
+                  <col class="w-[12%]" />
                 </colgroup>
                 <thead>
                   <tr class="border-b border-border">
@@ -195,6 +206,12 @@ function deudorContactoValidator(group: AbstractControl): ValidationErrors | nul
                     </th>
                     <th class="text-right px-3 py-3 text-xs font-semibold text-muted-foreground uppercase whitespace-nowrap">Valor inicial</th>
                     <th class="text-right px-3 py-3 text-xs font-semibold text-muted-foreground uppercase whitespace-nowrap">Deuda a la fecha</th>
+                    <th
+                      class="text-right px-3 py-3 text-xs font-semibold text-muted-foreground uppercase whitespace-nowrap"
+                      title="Porcentaje de la deuda según tipo/etapa del radicado. Editable por negociación."
+                    >
+                      Honorarios
+                    </th>
                     <th
                       class="text-center px-3 py-3 text-xs font-semibold text-muted-foreground uppercase whitespace-nowrap"
                       title="Recordatorio de pago en el periodo mensual (corte día 30)"
@@ -241,6 +258,77 @@ function deudorContactoValidator(group: AbstractControl): ValidationErrors | nul
                       </td>
                       <td class="px-3 py-3 text-right tabular-nums whitespace-nowrap align-middle font-semibold">
                         {{ data.formatDeuda(data.getDeudaActualParaCuenta(p)) }}
+                      </td>
+                      <td class="px-3 py-3 text-right align-middle">
+                        @if (editingHonorariosCuentaId() === p.id) {
+                          <div class="flex flex-col items-end gap-1.5 min-w-[8.5rem]">
+                            <input
+                              type="text"
+                              inputmode="decimal"
+                              class="w-full rounded-lg border border-input bg-background px-2 py-1 text-sm tabular-nums text-right focus:outline-none focus:ring-2 focus:ring-primary"
+                              [value]="honorariosEditDraft()"
+                              (input)="honorariosEditDraft.set($any($event.target).value)"
+                              (keydown.enter)="guardarHonorarios(p)"
+                              (keydown.escape)="cancelarEdicionHonorarios()"
+                              [disabled]="honorariosSaving()"
+                              aria-label="Monto de honorarios"
+                            />
+                            <div class="flex items-center gap-1">
+                              <button
+                                type="button"
+                                class="rounded-md px-2 py-0.5 text-[11px] font-medium text-primary hover:bg-primary/10 disabled:opacity-50"
+                                [disabled]="honorariosSaving()"
+                                (click)="guardarHonorarios(p)"
+                              >
+                                Guardar
+                              </button>
+                              <button
+                                type="button"
+                                class="rounded-md px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-secondary disabled:opacity-50"
+                                [disabled]="honorariosSaving()"
+                                (click)="cancelarEdicionHonorarios()"
+                              >
+                                Cancelar
+                              </button>
+                            </div>
+                            @if (honorariosParaCuenta(p).fuente === 'manual' || honorariosParaCuenta(p).porcentaje != null) {
+                              <button
+                                type="button"
+                                class="text-[11px] text-muted-foreground underline-offset-2 hover:underline disabled:opacity-50"
+                                [disabled]="honorariosSaving()"
+                                (click)="usarHonorariosSugeridos(p)"
+                              >
+                                Usar sugerido
+                              </button>
+                            }
+                            @if (honorariosEditError()) {
+                              <p class="text-[11px] text-destructive text-right">{{ honorariosEditError() }}</p>
+                            }
+                          </div>
+                        } @else {
+                          <div class="inline-flex flex-col items-end gap-0.5 group">
+                            <div class="inline-flex items-center gap-1">
+                              <span class="tabular-nums font-medium">
+                                @if (honorariosParaCuenta(p).monto != null) {
+                                  {{ data.formatCurrency(honorariosParaCuenta(p).monto!) }}
+                                } @else {
+                                  —
+                                }
+                              </span>
+                              <button
+                                type="button"
+                                (click)="editarHonorarios(p)"
+                                class="p-0.5 rounded text-muted-foreground opacity-70 hover:opacity-100 hover:text-primary hover:bg-secondary"
+                                title="Editar honorarios"
+                              >
+                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
+                              </button>
+                            </div>
+                            <span class="text-[11px] text-muted-foreground leading-snug max-w-[9rem] text-right">
+                              {{ honorariosParaCuenta(p).etiqueta }}
+                            </span>
+                          </div>
+                        }
                       </td>
                       <td class="px-3 py-3 text-center align-middle">
                         <app-recordatorio-periodo-chip [enviado]="recordatorioEnviado(p)" />
@@ -818,6 +906,10 @@ export class ClienteDetailPage {
   procesoLegalToDelete = signal<ProcesoLegal | null>(null);
   deleteConfirmOpen = signal(false);
   cuentaToDelete = signal<Cuenta | null>(null);
+  editingHonorariosCuentaId = signal<string | null>(null);
+  honorariosEditDraft = signal('');
+  honorariosEditError = signal<string | null>(null);
+  honorariosSaving = signal(false);
 
   tipoCuentaOptions: Array<{ value: TipoCuenta; label: string }> = [
     { value: 'apartamento', label: 'APARTAMENTO' },
@@ -970,6 +1062,7 @@ export class ClienteDetailPage {
   totalMonto = computed(() =>
     this.cuentas().reduce((sum, p) => sum + this.data.getDeudaActualParaCuenta(p), 0)
   );
+  totalHonorarios = computed(() => this.data.getTotalHonorariosParaCuentas(this.cuentas()));
 
   constructor(
     private route: ActivatedRoute,
@@ -1217,20 +1310,7 @@ export class ClienteDetailPage {
       }
       this.closeCuentaModal();
     } catch (err) {
-      const backendMessage =
-        err instanceof HttpErrorResponse
-          ? (err.error?.message ?? err.error?.code ?? err.message)
-          : null;
-      const isContractError =
-        typeof backendMessage === 'string' &&
-        (backendMessage.includes('saldo_inicial') || backendMessage.includes('unknown') || backendMessage.includes('Unexpected'));
-      this.cuentaCreateError.set(
-        !this.cuentaEditingId() && isContractError
-          ? 'No se pudo crear la cuenta porque el backend no reconoce el campo "saldo_inicial".'
-          : this.cuentaEditingId()
-            ? 'No se pudo editar la cuenta. Verifica los datos e intenta nuevamente.'
-            : 'No se pudo crear la cuenta. Verifica los datos e intenta nuevamente.'
-      );
+      this.cuentaCreateError.set(mapCuentaSaveError(err, this.cuentaEditingId() ? 'edit' : 'create'));
     } finally {
       this.cuentaCreateLoading.set(false);
     }
@@ -1245,6 +1325,63 @@ export class ClienteDetailPage {
 
   protected resumenCobro(p: Cuenta) {
     return this.data.getResumenMoraCobroParaCuenta(p);
+  }
+
+  protected honorariosParaCuenta(p: Cuenta): HonorariosResultado {
+    return this.data.getHonorariosParaCuenta(p);
+  }
+
+  editarHonorarios(p: Cuenta): void {
+    const actual = this.honorariosParaCuenta(p);
+    const seed =
+      actual.monto != null
+        ? String(Math.round(actual.monto))
+        : '';
+    this.editingHonorariosCuentaId.set(p.id);
+    this.honorariosEditDraft.set(seed);
+    this.honorariosEditError.set(null);
+  }
+
+  cancelarEdicionHonorarios(): void {
+    this.editingHonorariosCuentaId.set(null);
+    this.honorariosEditDraft.set('');
+    this.honorariosEditError.set(null);
+  }
+
+  async guardarHonorarios(p: Cuenta): Promise<void> {
+    const raw = this.honorariosEditDraft().trim();
+    if (!raw) {
+      this.honorariosEditError.set('Ingresa un monto o usa el sugerido.');
+      return;
+    }
+    const parsed = parseMontoColombiano(raw);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      this.honorariosEditError.set('Monto inválido.');
+      return;
+    }
+    this.honorariosSaving.set(true);
+    this.honorariosEditError.set(null);
+    try {
+      await this.data.updateCuenta(p.id, { honorarios_monto: parsed });
+      this.cancelarEdicionHonorarios();
+    } catch {
+      this.honorariosEditError.set('No se pudo guardar los honorarios.');
+    } finally {
+      this.honorariosSaving.set(false);
+    }
+  }
+
+  async usarHonorariosSugeridos(p: Cuenta): Promise<void> {
+    this.honorariosSaving.set(true);
+    this.honorariosEditError.set(null);
+    try {
+      await this.data.updateCuenta(p.id, { honorarios_monto: null });
+      this.cancelarEdicionHonorarios();
+    } catch {
+      this.honorariosEditError.set('No se pudo restaurar el sugerido.');
+    } finally {
+      this.honorariosSaving.set(false);
+    }
   }
 
   private resetCuentaFormEmpty(): void {

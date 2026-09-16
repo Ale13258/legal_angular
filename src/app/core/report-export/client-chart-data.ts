@@ -207,6 +207,32 @@ export function buildClienteDeudaPorCuentaChartData(
   };
 }
 
+/** Barras: honorarios por unidad. Devuelve null si ninguna tiene monto. */
+export function buildClienteHonorariosPorCuentaChartData(
+  data: DataService,
+  cuentas: Cuenta[],
+  options?: { palette?: ReportChartPalette },
+): ChartConfiguration<'bar'>['data'] | null {
+  const rows = cuentas
+    .map((p) => ({
+      label: p.identificador,
+      monto: data.getHonorariosParaCuenta(p).monto ?? 0,
+    }))
+    .filter((r) => r.monto > 0);
+  if (!rows.length) return null;
+  const color = REPORT_CHART_PALETTE_COLORS[options?.palette ?? 'morado'];
+  return {
+    labels: rows.map((r) => r.label),
+    datasets: [
+      {
+        label: 'Honorarios',
+        data: rows.map((r) => r.monto),
+        backgroundColor: color,
+      },
+    ],
+  };
+}
+
 /** Pastel: cobrado / pagado / deuda a la fecha del cliente. */
 export function buildClienteResumenFinancieroChartData(
   cobrado: number,

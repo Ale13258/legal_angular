@@ -89,6 +89,53 @@ function normalizeDeudor(raw: Partial<DeudorCobro> & { email?: string }): Deudor
   };
 }
 
+function documentoKey(documento: string): string {
+  const trimmed = documento.trim().toLowerCase();
+  const digits = trimmed.replace(/\D/g, '');
+  return digits.length >= 5 ? digits : trimmed;
+}
+
+function sameDocumento(a: string, b: string): boolean {
+  const ka = documentoKey(a);
+  const kb = documentoKey(b);
+  return ka.length > 0 && ka === kb;
+}
+
+type CobroSnapshot = Pick<
+  Cuenta,
+  'cobro_nombre' | 'cobro_tipo_persona' | 'cobro_documento' | 'cobro_email'
+>;
+
+/**
+ * El correo/nombre de ESTA unidad viven en cobro_*. Si el deudor maestro
+ * compartió extras de otras propiedades, no se muestran aquí.
+ */
+export function overlayPrimaryFromCobro(
+  deudores: DeudorCobro[],
+  cobro: CobroSnapshot,
+): DeudorCobro[] {
+  const snapshot = normalizeDeudor({
+    nombre: cobro.cobro_nombre,
+    tipo_persona: cobro.cobro_tipo_persona,
+    documento: cobro.cobro_documento,
+    emails: cobro.cobro_email?.trim() ? [cobro.cobro_email.trim()] : [],
+  });
+  if (!snapshot) return deudores;
+  if (!deudores.length) return [snapshot];
+  const idx = deudores.findIndex((d) => sameDocumento(d.documento, snapshot.documento));
+  if (idx < 0) return deudores;
+  const current = deudores[idx]!;
+  const primary: DeudorCobro = {
+    ...current,
+    nombre: snapshot.nombre || current.nombre,
+    tipo_persona: snapshot.tipo_persona,
+    documento: snapshot.documento || current.documento,
+    emails: snapshot.emails.length ? snapshot.emails : current.emails,
+    telefono: current.telefono ?? snapshot.telefono ?? null,
+  };
+  return [primary, ...deudores.filter((_, i) => i !== idx)];
+}
+
 /** Construye la lista de deudores desde `deudores` o, en legacy, desde `cobro_*`. */
 export function resolveDeudores(
   p: Pick<Cuenta, 'cobro_nombre' | 'cobro_tipo_persona' | 'cobro_documento' | 'cobro_email'> & {
@@ -96,7 +143,9 @@ export function resolveDeudores(
   },
 ): DeudorCobro[] {
   const list = coerceDeudores(p.deudores);
-  if (list.length) return list;
+  if (list.length) {
+    return overlayPrimaryFromCobro(list, p);
+  }
 
   const legacy = normalizeDeudor({
     nombre: p.cobro_nombre,

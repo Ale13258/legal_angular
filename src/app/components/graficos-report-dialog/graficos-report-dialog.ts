@@ -39,18 +39,22 @@ import { pickClienteMasAntiguo, type MoraPorClienteRow } from '../../core/mora-p
             <p><strong class="text-foreground">Visión general de toda la cartera</strong></p>
           </div>
 
-          <div class="grid grid-cols-3 gap-3">
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <div class="bg-muted/50 rounded-xl p-4 text-center border border-border/50">
               <p class="text-xs text-muted-foreground uppercase mb-1">Cartera Total</p>
               <p class="font-bold text-foreground">{{ data.formatCurrency(totalCartera()) }}</p>
+            </div>
+            <div class="rounded-xl p-4 text-center border-2 border-primary/30 bg-primary/5">
+              <p class="text-xs text-muted-foreground uppercase mb-1">Honorarios</p>
+              <p class="font-bold text-primary">{{ data.formatCurrency(totalHonorarios()) }}</p>
             </div>
             <div class="bg-muted/50 rounded-xl p-4 text-center border border-border/50">
               <p class="text-xs text-muted-foreground uppercase mb-1">Clientes</p>
               <p class="font-bold text-foreground">{{ clientesCount() }}</p>
             </div>
-            <div class="rounded-xl p-4 text-center border-2 border-primary/30 bg-primary/5">
+            <div class="bg-muted/50 rounded-xl p-4 text-center border border-border/50">
               <p class="text-xs text-muted-foreground uppercase mb-1">Propiedades</p>
-              <p class="font-bold text-primary">{{ propiedadesCount() }}</p>
+              <p class="font-bold text-foreground">{{ propiedadesCount() }}</p>
             </div>
           </div>
 
@@ -132,6 +136,44 @@ import { pickClienteMasAntiguo, type MoraPorClienteRow } from '../../core/mora-p
             </div>
           </div>
 
+          <div>
+            <h3 class="text-sm font-semibold text-foreground mb-2">Honorarios por cliente</h3>
+            <p class="text-sm text-muted-foreground mb-2">
+              Total sistema:
+              <strong class="text-foreground">{{ data.formatCurrency(totalHonorarios()) }}</strong>
+            </p>
+            <div class="overflow-x-auto rounded-xl border border-border">
+              <table class="w-full text-sm">
+                <thead>
+                  <tr class="border-b border-border bg-muted/30">
+                    <th class="text-left px-3 py-2 font-semibold text-muted-foreground">Cliente</th>
+                    <th class="text-right px-3 py-2 font-semibold text-muted-foreground">Honorarios</th>
+                    <th class="text-right px-3 py-2 font-semibold text-muted-foreground">Deuda</th>
+                    <th class="text-right px-3 py-2 font-semibold text-muted-foreground">% del total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @if (honorariosTable().length === 0) {
+                    <tr>
+                      <td colspan="4" class="px-3 py-4 text-sm text-muted-foreground">
+                        No hay honorarios calculables en el sistema.
+                      </td>
+                    </tr>
+                  } @else {
+                    @for (row of honorariosTable(); track row.cliente_id) {
+                      <tr class="border-b border-border/50">
+                        <td class="px-3 py-2">{{ row.nombre }}</td>
+                        <td class="px-3 py-2 text-right tabular-nums">{{ data.formatCurrency(row.honorarios) }}</td>
+                        <td class="px-3 py-2 text-right tabular-nums">{{ data.formatCurrency(row.deuda) }}</td>
+                        <td class="px-3 py-2 text-right tabular-nums">{{ data.formatPorcentaje(row.porcentaje_del_total) }}</td>
+                      </tr>
+                    }
+                  }
+                </tbody>
+              </table>
+            </div>
+          </div>
+
           <div class="flex flex-wrap gap-3 pt-2">
             <button
               type="button"
@@ -174,6 +216,7 @@ export class GraficosReportDialog {
   });
 
   totalCartera = (): number => this.data.getTotalCartera();
+  totalHonorarios = (): number => this.data.getTotalHonorarios();
   clientesCount = (): number => this.data.mockClientes.length;
   propiedadesCount = (): number => this.data.mockCuentas.length;
 
@@ -216,6 +259,10 @@ export class GraficosReportDialog {
     return this.data.getMoraPorCliente();
   }
 
+  honorariosTable() {
+    return this.data.getHonorariosPorCliente();
+  }
+
   clienteMasAntiguo(): MoraPorClienteRow | null {
     return pickClienteMasAntiguo(this.moraTable());
   }
@@ -234,11 +281,12 @@ export class GraficosReportDialog {
     doc.text('Resumen', 14, 44);
     doc.setFontSize(10);
     doc.text(`Cartera Total: ${this.data.formatCurrency(this.totalCartera())}`, 14, 51);
-    doc.text(`Clientes: ${this.clientesCount()}`, 14, 57);
-    doc.text(`Propiedades: ${this.propiedadesCount()}`, 14, 63);
+    doc.text(`Honorarios: ${this.data.formatCurrency(this.totalHonorarios())}`, 14, 57);
+    doc.text(`Clientes: ${this.clientesCount()}`, 14, 63);
+    doc.text(`Propiedades: ${this.propiedadesCount()}`, 14, 69);
 
     const estadoRows = this.estadoTable();
-    let startY = 72;
+    let startY = 78;
     doc.setFontSize(11);
     doc.text('Distribución por Estado', 14, startY);
     startY += 6;
@@ -291,6 +339,30 @@ export class GraficosReportDialog {
       styles: { fontSize: 9 },
       headStyles: { fillColor: [107, 60, 200] },
     });
+    startY = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 10;
+
+    doc.setFontSize(11);
+    doc.text('Honorarios por cliente', 14, startY);
+    startY += 6;
+    const honorariosRows = this.honorariosTable();
+    doc.setFontSize(10);
+    doc.text(`Total: ${this.data.formatCurrency(this.totalHonorarios())}`, 14, startY);
+    startY += 6;
+    autoTable(doc, {
+      startY,
+      head: [['Cliente', 'Honorarios', 'Deuda', '% del total']],
+      body:
+        honorariosRows.length > 0
+          ? honorariosRows.map((r) => [
+              r.nombre,
+              this.data.formatCurrency(r.honorarios),
+              this.data.formatCurrency(r.deuda),
+              this.data.formatPorcentaje(r.porcentaje_del_total),
+            ])
+          : [['—', 'Sin honorarios', '—', '—']],
+      styles: { fontSize: 9 },
+      headStyles: { fillColor: [107, 60, 200] },
+    });
 
     doc.save(`informe_graficos_${new Date().toISOString().slice(0, 10)}.pdf`);
   }
@@ -299,6 +371,7 @@ export class GraficosReportDialog {
     const estadoRows = this.estadoTable();
     const tipoRows = this.tipoTable();
     const moraRows = this.moraTable();
+    const honorariosRows = this.honorariosTable();
     const viejo = this.clienteMasAntiguo();
     const wsData: (string | number)[][] = [
       ['Informe de analítica de cartera'],
@@ -306,6 +379,7 @@ export class GraficosReportDialog {
       ['Visión general de toda la cartera'],
       [],
       ['Cartera Total', this.data.formatCurrency(this.totalCartera())],
+      ['Honorarios', this.data.formatCurrency(this.totalHonorarios())],
       ['Clientes', this.clientesCount()],
       ['Propiedades', this.propiedadesCount()],
       [],
@@ -329,6 +403,17 @@ export class GraficosReportDialog {
         r.edad_mora_dias ?? '—',
         r.antiguedad_dias,
       ]),
+      [],
+      ['Honorarios por cliente'],
+      ['Cliente', 'Honorarios', 'Deuda', '% del total'],
+      ...(honorariosRows.length > 0
+        ? honorariosRows.map((r) => [
+            r.nombre,
+            r.honorarios,
+            r.deuda,
+            r.porcentaje_del_total,
+          ])
+        : [['—', 'Sin honorarios', '—', '—']]),
     ];
     const ws = XLSX.utils.aoa_to_sheet(wsData);
     (ws as unknown as { '!cols': { wch: number }[] })['!cols'] = [
@@ -347,6 +432,7 @@ export class GraficosReportDialog {
     const estadoRows = this.estadoTable();
     const tipoRows = this.tipoTable();
     const moraRows = this.moraTable();
+    const honorariosRows = this.honorariosTable();
     const viejo = this.clienteMasAntiguo();
     const titulo = 'Informe de analítica de cartera';
 
@@ -357,6 +443,7 @@ export class GraficosReportDialog {
       buildSubheading('Resumen'),
       ...buildKeyValueLines([
         ['Cartera Total', this.data.formatCurrency(this.totalCartera())],
+        ['Honorarios', this.data.formatCurrency(this.totalHonorarios())],
         ['Clientes', String(this.clientesCount())],
         ['Propiedades', String(this.propiedadesCount())],
       ]),
@@ -390,6 +477,20 @@ export class GraficosReportDialog {
           this.data.formatDiasMora(r.edad_mora_dias),
           this.data.formatDiasMora(r.antiguedad_dias),
         ])
+      ),
+      buildSpacer(),
+      buildSubheading('Honorarios por cliente'),
+      buildParagraph(`Total: ${this.data.formatCurrency(this.totalHonorarios())}`),
+      buildTable(
+        ['Cliente', 'Honorarios', 'Deuda', '% del total'],
+        honorariosRows.length > 0
+          ? honorariosRows.map((r) => [
+              r.nombre,
+              this.data.formatCurrency(r.honorarios),
+              this.data.formatCurrency(r.deuda),
+              this.data.formatPorcentaje(r.porcentaje_del_total),
+            ])
+          : [['—', 'Sin honorarios', '—', '—']],
       ),
     ];
 
