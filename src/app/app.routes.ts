@@ -67,6 +67,12 @@ export const routes: Routes = [
       { path: 'cuentas', redirectTo: 'propiedades', pathMatch: 'full' },
       { path: 'cuentas/:id', redirectTo: 'propiedades/:id' },
       {
+        path: 'tutelas',
+        canActivate: [adminGuard],
+        loadComponent: () =>
+          import('./pages/tutelas-page/tutelas-page').then((m) => m.TutelasPage),
+      },
+      {
         path: 'graficos',
         canActivate: [adminGuard],
         loadComponent: () =>
