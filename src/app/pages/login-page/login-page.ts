@@ -13,9 +13,7 @@ import { fadeInUp } from '../../core/animations/animations';
     <div class="min-h-screen bg-background flex flex-col">
       <header class="border-b border-border bg-card page-container py-4">
         <a routerLink="/" class="flex items-center gap-2 text-foreground">
-          <span class="text-primary" aria-hidden="true">
-            <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22V10"/><path d="M12 10L6 16"/><path d="M12 10l6 6"/></svg>
-          </span>
+          <img src="/brand/legaltech-mark.png" alt="" width="32" height="32" class="h-8 w-8 shrink-0" />
           <span class="font-display font-bold text-lg">LegalTech</span>
         </a>
       </header>

@@ -1701,10 +1701,17 @@ export class DataService {
       fecha_inicio_cobro: this.normalizeFechaYmd(withDeudores.fecha_inicio_cobro) ?? prev?.fecha_inicio_cobro ?? null,
       fecha_fin_cobro: this.normalizeFechaYmd(withDeudores.fecha_fin_cobro) ?? prev?.fecha_fin_cobro ?? null,
     };
-    const honorarios_monto =
+    // Prisma Decimal llega como string en JSON; sin coerce el override manual se ignora.
+    const rawHonorarios =
       withDeudores.honorarios_monto !== undefined
         ? withDeudores.honorarios_monto
         : (prev?.honorarios_monto ?? null);
+    const honorarios_monto =
+      rawHonorarios == null || rawHonorarios === ('' as unknown)
+        ? null
+        : Number.isFinite(Number(rawHonorarios))
+          ? Math.max(0, Number(rawHonorarios))
+          : null;
     if (Number.isFinite(monto)) {
       return {
         ...withDeudores,

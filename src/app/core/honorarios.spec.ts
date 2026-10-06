@@ -59,6 +59,17 @@ describe('honorarios', () => {
       expect(r.etiqueta).toBe('manual');
     });
 
+    it('acepta override Decimal/string del API (no revierte al sugerido)', () => {
+      const r = calcularHonorarios({
+        deuda: 1_000_000,
+        tipo: 'juridica',
+        etapa: 'radicacion',
+        overrideMonto: '75000.00',
+      });
+      expect(r.monto).toBe(75_000);
+      expect(r.fuente).toBe('manual');
+    });
+
     it('sin % ni override ni mora devuelve sin_dato', () => {
       const r = calcularHonorarios({ deuda: 100, tipo: 'juridica', etapa: 'terminacion' });
       expect(r.monto).toBeNull();

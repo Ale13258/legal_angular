@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mock Tutelas — LegalTech</title>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --font-sans: 'Plus Jakarta Sans', system-ui, sans-serif;
+      --background: #ffffff;
+      --foreground: #1a1520;
+      --card: #ffffff;
+      --primary: #9b2fd4;
+      --primary-foreground: #ffffff;
+      --secondary: #f5eaf8;
+      --secondary-foreground: #5a2d6e;
+      --muted: #f4f2f6;
+      --muted-foreground: #6b6575;
+      --border: #e8e4ec;
+      --gradient-hero: linear-gradient(135deg, hsl(275 80% 50%), hsl(300 50% 60%));
+      --shadow-card: 0 8px 30px rgb(0 0 0 / 0.04);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: var(--font-sans);
+      background: color-mix(in oklab, var(--muted) 30%, white);
+      color: var(--foreground);
+      -webkit-font-smoothing: antialiased;
+    }
+    .min-h-screen { min-height: 100vh; display: flex; flex-direction: column; }
+    header {
+      position: sticky; top: 0; z-index: 40;
+      background: var(--card);
+      border-bottom: 1px solid var(--border);
+      padding: 0.75rem 1.5rem;
+      display: flex; align-items: center; gap: 1.5rem;
+    }
+    .logo {
+      width: 40px; height: 40px; border-radius: 12px;
+      background: var(--gradient-hero);
+      display: flex; align-items: center; justify-content: center;
+      color: white; font-weight: 700; font-size: 1.125rem; flex-shrink: 0;
+    }
+    nav { display: flex; align-items: center; gap: 0.25rem; flex: 1; flex-wrap: wrap; }
+    .nav-pill {
+      padding: 0.5rem 1rem; border-radius: 9999px;
+      font-size: 0.875rem; font-weight: 500;
+      color: var(--muted-foreground); text-decoration: none;
+    }
+    .nav-pill.active {
+      background: var(--primary); color: var(--primary-foreground);
+      box-shadow: 0 1px 2px rgb(0 0 0 / 0.08);
+    }
+    .salir { margin-left: auto; color: var(--muted-foreground); font-size: 0.875rem; font-weight: 500; }
+    .hero {
+      background: var(--gradient-hero);
+      padding: 2rem 2rem 2.5rem;
+      border-radius: 0 0 2rem 2rem;
+    }
+    .hero h1 { margin: 0 0 0.5rem; color: white; font-size: 2rem; font-weight: 700; }
+    .hero p { margin: 0; color: rgb(255 255 255 / 0.7); }
+    .page { padding: 0 2rem 2.5rem; margin-top: -1.5rem; }
+    .card {
+      background: var(--card);
+      border: 1px solid color-mix(in oklab, var(--border) 50%, transparent);
+      border-radius: 1rem;
+      box-shadow: var(--shadow-card);
+      padding: 1.5rem;
+    }
+    .card-head {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap;
+    }
+    .card-head h2 {
+      margin: 0; font-size: 1.125rem; font-weight: 700;
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+    .card-head h2 svg { color: var(--primary); }
+    .btn-primary {
+      display: inline-flex; align-items: center; gap: 0.375rem;
+      background: var(--primary); color: var(--primary-foreground);
+      border: none; border-radius: 0.75rem;
+      padding: 0.5rem 1rem; font-size: 0.875rem; font-weight: 500;
+      font-family: inherit;
+    }
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; min-width: 980px; }
+    th {
+      text-align: left; padding: 0.75rem 1rem;
+      font-size: 0.75rem; font-weight: 600;
+      color: var(--muted-foreground); text-transform: uppercase;
+      border-bottom: 1px solid var(--border);
+    }
+    th.right, td.right { text-align: right; }
+    td {
+      padding: 0.75rem 1rem; font-size: 0.875rem;
+      border-bottom: 1px solid color-mix(in oklab, var(--border) 50%, transparent);
+      vertical-align: middle;
+    }
+    tr:hover td { background: color-mix(in oklab, var(--secondary) 50%, transparent); }
+    .muted { color: var(--muted-foreground); }
+    .font-med { font-weight: 500; }
+    .tabular { font-variant-numeric: tabular-nums; }
+    .badge {
+      display: inline-flex; align-items: center;
+      border-radius: 9999px; padding: 0.125rem 0.625rem;
+      font-size: 0.75rem; font-weight: 500;
+    }
+    .badge-primary { background: var(--primary); color: white; }
+    .badge-orange { background: #f97316; color: white; }
+    .badge-muted { background: var(--muted); color: var(--muted-foreground); }
+    .cell-vencido { background: #fee2e2; color: #991b1b; font-weight: 600; border-radius: 0.5rem; padding: 0.25rem 0.5rem; display: inline-block; }
+    .cell-warn { background: #fef9c3; border-radius: 0.375rem; padding: 0.15rem 0.4rem; }
+    .actions { display: flex; gap: 0.25rem; justify-content: flex-end; }
+    .icon-btn {
+      width: 32px; height: 32px; border-radius: 0.5rem; border: none;
+      background: transparent; color: var(--muted-foreground);
+      display: inline-flex; align-items: center; justify-content: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="min-h-screen">
+    <header>
+      <div class="logo">L</div>
+      <nav>
+        <a class="nav-pill" href="#">Cartera</a>
+        <a class="nav-pill" href="#">Propiedades</a>
+        <a class="nav-pill" href="#">Informes</a>
+        <a class="nav-pill" href="#">PQRS</a>
+        <a class="nav-pill active" href="#">Tutelas</a>
+        <a class="nav-pill" href="#">Usuarios</a>
+      </nav>
+      <span class="salir">Salir</span>
+    </header>
+
+    <div class="hero">
+      <h1>Acciones de tutela</h1>
+      <p>Seguimiento de tutelas, plazos y etapas procesales</p>
+    </div>
+
+    <div class="page">
+      <div class="card">
+        <div class="card-head">
+          <h2>
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/></svg>
+            Tutelas en curso
+          </h2>
+          <button type="button" class="btn-primary">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
+            Nueva tutela
+          </button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Radicación</th>
+                <th>Radicado</th>
+                <th>Juzgado</th>
+                <th>Accionante</th>
+                <th>Accionado</th>
+                <th>Derecho</th>
+                <th class="right">Vencimiento</th>
+                <th>Etapa</th>
+                <th class="right">Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="tabular">02/06/2026</td>
+                <td class="tabular muted" style="font-size:0.75rem">13001400301620260057800</td>
+                <td class="muted" style="max-width:12rem">JUZGADO MUNICIPAL — CIVIL 016 CARTAGENA</td>
+                <td class="font-med">ORANGE</td>
+                <td>SALUD TOTAL</td>
+                <td><span class="badge badge-muted">PETICIÓN</span></td>
+                <td class="right tabular">16/06/2026</td>
+                <td><span class="badge badge-primary">ADMITIDA</span></td>
+                <td><div class="actions"><button class="icon-btn">✎</button></div></td>
+              </tr>
+              <tr>
+                <td class="tabular">26/08/2026</td>
+                <td class="tabular muted" style="font-size:0.75rem">13001407100120250056100</td>
+                <td class="muted">J07 DEL CIRCUITO LABORAL DE CARTAGENA</td>
+                <td class="font-med">EDIF SAN MARTIN</td>
+                <td><span class="cell-warn">COLPENSIONES</span></td>
+                <td><span class="badge badge-muted">PETICIÓN</span></td>
+                <td class="right"><span class="cell-vencido">09/07/2026</span></td>
+                <td><span class="badge badge-orange">IMPUGNADA</span></td>
+                <td><div class="actions"><button class="icon-btn">✎</button></div></td>
+              </tr>
+              <tr>
+                <td class="tabular">15/05/2026</td>
+                <td class="tabular muted" style="font-size:0.75rem">13001400300820260041200</td>
+                <td class="muted">JUZ 01 CONTROL DE GARANTÍAS CARTAGENA</td>
+                <td class="font-med">EDIF CALLE DEL PORVENIR</td>
+                <td>ORIPC</td>
+                <td><span class="badge badge-muted">PETICIÓN</span></td>
+                <td class="right tabular">29/05/2026</td>
+                <td><span class="badge badge-primary">FALLO</span></td>
+                <td><div class="actions"><button class="icon-btn">✎</button></div></td>
+              </tr>
+              <tr>
+                <td class="muted">—</td>
+                <td class="muted">—</td>
+                <td class="muted">—</td>
+                <td class="font-med">APTOP 111</td>
+                <td>AFINIA</td>
+                <td><span class="badge badge-muted">PETICIÓN</span></td>
+                <td class="right muted">—</td>
+                <td><span class="badge badge-muted">RADICACIÓN</span></td>
+                <td><div class="actions"><button class="icon-btn">✎</button></div></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

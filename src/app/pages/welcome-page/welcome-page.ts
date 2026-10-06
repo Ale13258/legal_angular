@@ -18,22 +18,13 @@ const WELCOME_FEATURES = [
       <!-- Header -->
       <header class="border-b border-border bg-card page-container py-4 flex flex-wrap items-center justify-between gap-4 shrink-0">
         <a routerLink="/" class="flex items-center gap-2">
-          <span class="text-primary" aria-hidden="true">
-            <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M12 22V10"/>
-              <path d="M12 10L6 16"/>
-              <path d="M12 10l6 6"/>
-              <path d="M6 16H4a1 1 0 0 1-1-1v-2a1 1 0 0 1 1-1h2"/>
-              <path d="M18 16h2a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1h-2"/>
-              <path d="M6 16a2 2 0 1 1 0-4 2 2 0 0 1 0 4Z"/>
-              <path d="M18 16a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z"/>
-            </svg>
-          </span>
+          <img src="/brand/legaltech-mark.png" alt="" width="36" height="36" class="h-9 w-9 shrink-0" />
           <span class="font-display font-bold text-xl text-foreground">LegalTech</span>
         </a>
         <div class="flex flex-wrap items-center gap-2">
           <a
             routerLink="/login"
+            queryParamsHandling="preserve"
             class="nav-pill inline-flex items-center gap-2 rounded-xl bg-primary text-primary-foreground px-5 py-2.5 font-medium text-sm hover:opacity-95 shadow-sm"
           >
             Entrar al sistema
@@ -66,6 +57,7 @@ const WELCOME_FEATURES = [
           <div class="flex flex-col sm:flex-row gap-3 mb-16">
             <a
               routerLink="/login"
+              queryParamsHandling="preserve"
               class="nav-pill inline-flex items-center justify-center gap-2 rounded-xl bg-primary text-primary-foreground px-6 py-3 font-medium hover:opacity-95 shadow-sm"
             >
               Entrar al sistema

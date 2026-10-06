@@ -71,22 +71,29 @@ export function porcentajeHonorariosDesdeMora(
   return { porcentaje: pct, etiqueta: `${pct}% · ${etiquetaEtapaCobranzaCorta(codigo)}` };
 }
 
+/** Coerce API Decimal/string/number → finite number or null. */
+export function coerceHonorariosMonto(value: unknown): number | null {
+  if (value == null || value === '') return null;
+  const n = typeof value === 'number' ? value : Number(String(value).trim());
+  return Number.isFinite(n) ? Math.max(0, n) : null;
+}
+
 export function calcularHonorarios(input: {
   deuda: number;
   tipo?: TipoProcesoLegal | null;
   etapa?: EtapaProceso | null;
-  overrideMonto?: number | null;
+  overrideMonto?: number | null | string;
   /** Si no hay % por radicado, usa la etapa de cobranza de la edad en mora. */
   edadMoraDias?: number | null;
 }): HonorariosResultado {
-  const override = input.overrideMonto;
-  if (override != null && Number.isFinite(override)) {
+  const override = coerceHonorariosMonto(input.overrideMonto);
+  if (override != null) {
     const fromProceso = porcentajeHonorarios(input.tipo, input.etapa);
     const fromMora =
       fromProceso == null ? porcentajeHonorariosDesdeMora(input.edadMoraDias)?.porcentaje ?? null : null;
     return {
       porcentaje: fromProceso ?? fromMora,
-      monto: Math.max(0, override),
+      monto: override,
       fuente: 'manual',
       etiqueta: 'manual',
     };

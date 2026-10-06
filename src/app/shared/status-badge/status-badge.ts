@@ -51,6 +51,17 @@ export class StatusBadge {
         'bg-emerald-500/15 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300',
       portal_sin_registro:
         'bg-amber-500/15 text-amber-800 dark:bg-amber-500/20 dark:text-amber-300',
+      // Etapas de tutela
+      tutela_radicacion: 'bg-muted text-muted-foreground',
+      tutela_admision: 'bg-primary text-primary-foreground',
+      tutela_inadmision: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400',
+      tutela_requerimiento: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400',
+      tutela_sentencia: 'bg-primary text-primary-foreground',
+      tutela_impugnacion: 'bg-orange-500 text-white',
+      tutela_desacato: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400',
+      tutela_admite_impugnacion: 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300',
+      tutela_otro: 'border border-border bg-secondary/40 text-muted-foreground',
+      tutela_finalizada: 'border border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300',
     };
     return map[v] ?? map['default'];
   }
